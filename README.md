@@ -68,7 +68,9 @@ Once Thrive is authorised, you will land on a textbox where you can write a Mast
 
 ## Viewing and interacting with posts.
 
-Shift once from the post textbox and you'll see a list of posts from users on your home timeline. Use the up and down arrow keys to navigate this list. In this initial view, you can see the user, the post message, and the number of replies, boosts and favourites the post has. Pressing Enter on a post will bring up a dialog where you can find various details about the post, such as who posted it, what client they used, when it was posted, replies, boosts and favourites. Tab around this dialog and you'll also see options to reply to, boost and favourite the post. Press Escape to close this dialog.
+Shift once from the post textbox and you'll see a list of posts from users on your home timeline. Use the up and down arrow keys to navigate this list. In this initial view, you can see the user, the post message, and the number of replies, boosts and favourites the post has.
+Pressing Enter on a post will bring up a dialog where you can find various details about the post, such as who posted it, what client they used, when it was posted, replies, boosts and favourites. Tab around this dialog and you'll also see options to reply to, boost and favourite the post. Press Escape to close this dialog.
+Note: you will only see the user's client if the post was sent from the same instance as the one you're on. Otherwise, it will show as unknown. This is because client data doesn't federate across instances.
 
 ## Credits
 
