@@ -1,0 +1,2 @@
+@echo off
+nuitka --standalone --windows-console-mode=disable mastodon/thrive.py --company-name="G4p Studios" --product-name=Thrive --file-version=0.0.1.0 --product-version=0.0.1.0 --file-description="Thrive"
