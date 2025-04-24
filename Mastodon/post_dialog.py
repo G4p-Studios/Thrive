@@ -85,7 +85,7 @@ Language: {language}"""
 
 		label = wx.StaticText(panel, label="Reply message:")
 		self.reply_text = wx.TextCtrl(panel, style=wx.TE_MULTILINE, size=(480, 100))
-		self.reply_text.SetValue(f"@{self.reply_users} ")
+		self.reply_text.SetValue(f"@{self.reply_users}")
 		self.reply_text.SetInsertionPoint(len(self.reply_text.GetValue()))
 
 		send_button = wx.Button(panel, label="Send Reply")
