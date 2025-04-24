@@ -36,7 +36,7 @@ pip install -r requirements.txt
   * python thrive.py
 
 ### Compiled.
-If you just want a pre-compiled binary without having to fight with Python, you can [download the latest release here](https://github.com/G4p-Studios/Thrive/releases/download/v0.0.1.0-alpha1/thrive.zip). To run this, simply extract the zip file and run thrive.exe.
+If you just want a pre-compiled binary without having to fight with Python, you can [download the latest release here](https://github.com/G4p-Studios/Thrive/releases/download/v0.0.2.0-alpha2/thrive.zip). To run this, simply extract the zip file and run thrive.exe.
 The pre-compiled Thrive binary runs on Windows 7 and higher.
 
 ## Authorising to Mastodon
