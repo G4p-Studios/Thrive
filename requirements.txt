@@ -1,2 +1,3 @@
 mastodon_py
 wxPython
+git+https://github.com/samtupy/sound_lib_macos_fixes.git
