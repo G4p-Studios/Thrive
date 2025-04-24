@@ -1,7 +1,13 @@
 import wx
 from utils import strip_html
 from profile_dialog import ViewProfileDialog
-
+from sound_lib import stream
+from sound_lib import output as o
+out = o.Output()
+replysnd = stream.FileStream(file = "sounds/send_reply.wav")
+favsnd = stream.FileStream(file = "sounds/favorite.wav")
+boostsnd = stream.FileStream(file = "sounds/send_boost.wav")
+unfavsnd = stream.FileStream(file = "sounds/unfavorite.wav")
 class PostDetailsDialog(wx.Dialog):
 	def __init__(self, parent, mastodon, status):
 		account = status["account"]
@@ -103,7 +109,7 @@ Language: {language}"""
 			return
 		try:
 			self.mastodon.status_post(text, in_reply_to_id=self.status["id"])
-			wx.MessageBox("Reply posted successfully!", "Success", wx.OK | wx.ICON_INFORMATION)
+			replysnd.play()
 			dialog.Close()
 		except Exception as e:
 			wx.MessageBox(f"Error sending reply: {e}", "Error", wx.OK | wx.ICON_ERROR)
@@ -114,6 +120,7 @@ Language: {language}"""
 				self.mastodon.status_unreblog(self.status["id"])
 				self.boost_button.SetLabel("Boost")
 			else:
+				boostsnd.play()
 				self.mastodon.status_reblog(self.status["id"])
 				self.boost_button.SetLabel("Unboost")
 			self.status["reblogged"] = not self.status["reblogged"]
@@ -123,11 +130,14 @@ Language: {language}"""
 	def toggle_fav(self, event):
 		try:
 			if self.status["favourited"]:
+				unfavsnd.play()
 				self.mastodon.status_unfavourite(self.status["id"])
 				self.fav_button.SetLabel("Favourite")
 			else:
+				favsnd.play()
 				self.mastodon.status_favourite(self.status["id"])
 				self.fav_button.SetLabel("Unfavourite")
+				favsnd.play()
 			self.status["favourited"] = not self.status["favourited"]
 		except Exception as e:
 			wx.MessageBox(f"Error: {e}", "Favourite Error")

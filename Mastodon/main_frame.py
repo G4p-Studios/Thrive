@@ -3,7 +3,9 @@ import threading
 from datetime import datetime
 from utils import strip_html, get_time_ago
 from post_dialog import PostDetailsDialog
-
+from sound_lib import stream
+from sound_lib import output as o
+tootsnd = stream.FileStream(file = "sounds/send_toot.wav")
 class ThriveFrame(wx.Frame):
 	def __init__(self, *args, mastodon=None, **kwargs):
 		super().__init__(*args, **kwargs, size=(800, 600))
@@ -70,7 +72,7 @@ class ThriveFrame(wx.Frame):
 			return
 		try:
 			self.mastodon.status_post(status, spoiler_text=spoiler)
-			wx.MessageBox("Posted successfully!", "Success")
+			tootsnd.play()
 			self.toot_input.SetValue("")
 			self.cw_input.SetValue("")
 			self.cw_toggle.SetValue(False)

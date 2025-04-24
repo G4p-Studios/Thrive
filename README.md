@@ -21,29 +21,19 @@ These instructions apply to the Windows operating system, so you will also need 
 
 1. Press Windows + R, type cmd, and press Enter to launch the command prompt.
 2. Clone this repository with git by running the following command.
-
-> git clone https://github.com/G4p-Studios/Thrive.git
-
+git clone https://github.com/G4p-Studios/Thrive.git
 3. Create a virtual Python environment. This will allow you to install libraries and run Thrive inside an isolated workspace without touching your main Python install.
-
   * cd Thrive
   * python -m venv venv
-
 4. Activate the virtual environment.
-
-> venv\scripts\activate
-
+venv\scripts\activate
 5. Ensure that pip, setuptools and wheel are up to date to avoid errors installing libraries.
-
-> python -m pip install --upgrade pip setuptools wheel
-
+python -m pip install --upgrade pip setuptools wheel
 6. Install the libraries needed for Thrive.
-
-> pip install -r requirements.txt
-
+pip install -r requirements.txt
 7. Run Thrive.
-
-> python mastodon/thrive.py
+  * cd mastodon
+  * python thrive.py
 
 ### Compiled.
 If you just want a pre-compiled binary without having to fight with Python, you can [download the latest release here](https://github.com/G4p-Studios/Thrive/releases/download/v0.0.1.0-alpha1/thrive.zip). To run this, simply extract the zip file and run thrive.exe.
