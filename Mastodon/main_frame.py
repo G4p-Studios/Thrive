@@ -53,8 +53,11 @@ class ThriveFrame(wx.Frame):
 		self.update_posts()
 
 	def on_key_press(self, event):
+		mods = event.HasAnyModifiers()
 		if event.GetKeyCode() == wx.WXK_RETURN and self.FindFocus() == self.posts_list:
 			self.show_post_details()
+		elif event.GetKeyCode() == wx.WXK_RETURN and self.FindFocus() == self.toot_input and mods:
+			self.on_post(event)
 		else:
 			event.Skip()
 
