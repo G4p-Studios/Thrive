@@ -15,23 +15,23 @@ class ThriveFrame(wx.Frame):
 		self.panel = wx.Panel(self)
 		vbox = wx.BoxSizer(wx.VERTICAL)
 
-		self.toot_label = wx.StaticText(self.panel, label="Post:")
+		self.toot_label = wx.StaticText(self.panel, label="&Post:")
 		self.toot_input = wx.TextCtrl(self.panel, style=wx.TE_MULTILINE, size=(780, 100))
 
-		self.cw_label = wx.StaticText(self.panel, label="Content warning title:")
+		self.cw_label = wx.StaticText(self.panel, label="Content w&arning title:")
 		self.cw_input = wx.TextCtrl(self.panel, size=(780, 30))
-		self.cw_toggle = wx.CheckBox(self.panel, label="Add Content Warning")
+		self.cw_toggle = wx.CheckBox(self.panel, label="Add Content &Warning")
 		self.cw_toggle.Bind(wx.EVT_CHECKBOX, self.on_toggle_cw)
 		self.cw_input.Hide()
 		self.cw_label.Hide()
 
-		self.post_button = wx.Button(self.panel, label="Post")
+		self.post_button = wx.Button(self.panel, label="Po&st")
 		self.post_button.Bind(wx.EVT_BUTTON, self.on_post)
 
-		self.exit_button = wx.Button(self.panel, label="Exit")
+		self.exit_button = wx.Button(self.panel, label="E&xit")
 		self.exit_button.Bind(wx.EVT_BUTTON, lambda e: self.Close())
 
-		self.posts_label = wx.StaticText(self.panel, label="Posts List:")
+		self.posts_label = wx.StaticText(self.panel, label="Posts &List:")
 		self.posts_list = wx.ListBox(self.panel, style=wx.LB_SINGLE, size=(780, 200))
 
 		vbox.Add(self.toot_label, 0, wx.ALL | wx.EXPAND, 5)
