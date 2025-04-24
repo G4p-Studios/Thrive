@@ -21,6 +21,10 @@ class PostDetailsDialog(wx.Dialog):
 		self.Bind(wx.EVT_CHAR_HOOK, self.on_key)
 
 		content = strip_html(self.status["content"])
+		self.reply_users=""
+		for i in content.split(" "):
+			if i.startswith("@"): self.reply_users+=i+" "
+		self.reply_users=account.acct+" "+self.reply_users
 		self.content_box = wx.TextCtrl(self, value=content, style=wx.TE_MULTILINE | wx.TE_READONLY)
 
 		app = self.status.get("application")
@@ -79,19 +83,19 @@ Language: {language}"""
 		panel = wx.Panel(dialog)
 		vbox = wx.BoxSizer(wx.VERTICAL)
 
-		username = self.account.get("acct", "")
 		label = wx.StaticText(panel, label="Reply message:")
-		reply_text = wx.TextCtrl(panel, style=wx.TE_MULTILINE, size=(480, 100))
-		reply_text.SetValue(f"@{username} ")
+		self.reply_text = wx.TextCtrl(panel, style=wx.TE_MULTILINE, size=(480, 100))
+		self.reply_text.SetValue(f"@{self.reply_users}")
+		self.reply_text.SetInsertionPoint(len(self.reply_text.GetValue()))
 
 		send_button = wx.Button(panel, label="Send Reply")
 		cancel_button = wx.Button(panel, label="Cancel")
 
-		send_button.Bind(wx.EVT_BUTTON, lambda e: self.send_reply(dialog, reply_text.GetValue()))
+		send_button.Bind(wx.EVT_BUTTON, lambda e: self.send_reply(dialog, self.reply_text.GetValue()))
 		cancel_button.Bind(wx.EVT_BUTTON, lambda e: dialog.Close())
 
 		vbox.Add(label, 0, wx.LEFT | wx.RIGHT | wx.TOP, 10)
-		vbox.Add(reply_text, 1, wx.LEFT | wx.RIGHT | wx.BOTTOM | wx.EXPAND, 10)
+		vbox.Add(self.reply_text, 1, wx.LEFT | wx.RIGHT | wx.BOTTOM | wx.EXPAND, 10)
 
 		buttons = wx.BoxSizer(wx.HORIZONTAL)
 		buttons.Add(send_button, 0, wx.ALL, 5)
@@ -99,9 +103,17 @@ Language: {language}"""
 		vbox.Add(buttons, 0, wx.ALIGN_RIGHT | wx.RIGHT | wx.BOTTOM, 10)
 
 		panel.SetSizer(vbox)
+		dialog.Bind(wx.EVT_CHAR_HOOK, self.on_reply_key_press)
 		dialog.ShowModal()
 		dialog.Destroy()
-
+	
+	def on_reply_key_press(self, event):
+		mods = event.HasAnyModifiers()
+		if event.GetKeyCode() == wx.WXK_RETURN and mods:
+			self.send_reply(event.EventObject.Parent.Parent, self.reply_text.GetValue())
+		else:
+			event.Skip()
+	
 	def send_reply(self, dialog, text):
 		text = text.strip()
 		if not text:
