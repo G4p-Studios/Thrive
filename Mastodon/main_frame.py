@@ -1,11 +1,18 @@
 import wx
 import threading
+import os
 from datetime import datetime
 from utils import strip_html, get_time_ago
 from post_dialog import PostDetailsDialog
 from sound_lib import stream
 from sound_lib import output as o
-tootsnd = stream.FileStream(file = "sounds/send_toot.wav")
+from sound_lib.main import BassError
+from easysettings import EasySettings
+conf = EasySettings("thrive.ini")
+try:
+	tootsnd = stream.FileStream(file = "sounds/mastodon-" + conf.get("soundpack") + "/send_toot.wav")
+except BassError:
+	pass
 class ThriveFrame(wx.Frame):
 	def __init__(self, *args, mastodon=None, **kwargs):
 		super().__init__(*args, **kwargs, size=(800, 600))
@@ -15,23 +22,23 @@ class ThriveFrame(wx.Frame):
 		self.panel = wx.Panel(self)
 		vbox = wx.BoxSizer(wx.VERTICAL)
 
-		self.toot_label = wx.StaticText(self.panel, label="Post:")
+		self.toot_label = wx.StaticText(self.panel, label="&Post:")
 		self.toot_input = wx.TextCtrl(self.panel, style=wx.TE_MULTILINE, size=(780, 100))
 
-		self.cw_label = wx.StaticText(self.panel, label="Content warning title:")
+		self.cw_label = wx.StaticText(self.panel, label="Content w&arning title:")
 		self.cw_input = wx.TextCtrl(self.panel, size=(780, 30))
-		self.cw_toggle = wx.CheckBox(self.panel, label="Add Content Warning")
+		self.cw_toggle = wx.CheckBox(self.panel, label="Add Content &Warning")
 		self.cw_toggle.Bind(wx.EVT_CHECKBOX, self.on_toggle_cw)
 		self.cw_input.Hide()
 		self.cw_label.Hide()
 
-		self.post_button = wx.Button(self.panel, label="Post")
+		self.post_button = wx.Button(self.panel, label="Po&st")
 		self.post_button.Bind(wx.EVT_BUTTON, self.on_post)
 
-		self.exit_button = wx.Button(self.panel, label="Exit")
+		self.exit_button = wx.Button(self.panel, label="E&xit")
 		self.exit_button.Bind(wx.EVT_BUTTON, lambda e: self.Close())
 
-		self.posts_label = wx.StaticText(self.panel, label="Posts List:")
+		self.posts_label = wx.StaticText(self.panel, label="Posts &List:")
 		self.posts_list = wx.ListBox(self.panel, style=wx.LB_SINGLE, size=(780, 200))
 
 		vbox.Add(self.toot_label, 0, wx.ALL | wx.EXPAND, 5)
@@ -53,8 +60,11 @@ class ThriveFrame(wx.Frame):
 		self.update_posts()
 
 	def on_key_press(self, event):
+		mods = event.HasAnyModifiers()
 		if event.GetKeyCode() == wx.WXK_RETURN and self.FindFocus() == self.posts_list:
 			self.show_post_details()
+		elif event.GetKeyCode() == wx.WXK_RETURN and self.FindFocus() == self.toot_input and mods:
+			self.on_post(event)
 		else:
 			event.Skip()
 

@@ -1,13 +1,33 @@
 import wx
+import os
 from utils import strip_html
 from profile_dialog import ViewProfileDialog
 from sound_lib import stream
 from sound_lib import output as o
+from sound_lib.main import BassError
+from easysettings import EasySettings
 out = o.Output()
-replysnd = stream.FileStream(file = "sounds/send_reply.wav")
-favsnd = stream.FileStream(file = "sounds/favorite.wav")
-boostsnd = stream.FileStream(file = "sounds/send_boost.wav")
-unfavsnd = stream.FileStream(file = "sounds/unfavorite.wav")
+if not os.path.exists("thrive.ini"):
+	conf = EasySettings("thrive.ini")
+	conf.setsave("soundpack", "default")
+else:
+	conf = EasySettings("thrive.ini")
+try:
+	replysnd = stream.FileStream(file = "sounds/mastodon-" + conf.get("soundpack") + "/send_reply.wav")
+except BassError:
+	pass
+try:
+	favsnd = stream.FileStream(file = "sounds/mastodon-" + conf.get("soundpack") + "/favorite.wav")
+except BassError:
+	pass
+try:
+	boostsnd = stream.FileStream(file = "sounds/mastodon-" + conf.get("soundpack") + "/send_boost.wav")
+except BassError:
+	pass
+try:
+	unfavsnd = stream.FileStream(file = "sounds/mastodon-" + conf.get("soundpack") + "/unfavorite.wav")
+except BassError:
+	pass
 class PostDetailsDialog(wx.Dialog):
 	def __init__(self, parent, mastodon, status):
 		account = status["account"]
@@ -21,6 +41,11 @@ class PostDetailsDialog(wx.Dialog):
 		self.Bind(wx.EVT_CHAR_HOOK, self.on_key)
 
 		content = strip_html(self.status["content"])
+		self.reply_users=""
+		me=self.mastodon.me().acct
+		for i in content.split(" "):
+			if i.startswith("@") and i!="@"+me: self.reply_users+=i+" "
+		if account.acct!=me: self.reply_users=account.acct+" "+self.reply_users
 		self.content_box = wx.TextCtrl(self, value=content, style=wx.TE_MULTILINE | wx.TE_READONLY)
 
 		app = self.status.get("application")
@@ -41,17 +66,17 @@ Visibility: {visibility}
 Language: {language}"""
 		self.details_box = wx.TextCtrl(self, value=detail_text, style=wx.TE_MULTILINE | wx.TE_READONLY)
 
-		self.reply_button = wx.Button(self, label="Reply")
-		self.boost_button = wx.Button(self, label="Unboost" if self.status["reblogged"] else "Boost")
-		self.fav_button = wx.Button(self, label="Unfavourite" if self.status["favourited"] else "Favourite")
-		self.profile_button = wx.Button(self, label=f"View Profile of {display_name}")
-		self.close_button = wx.Button(self, label="Close")
+		self.reply_button = wx.Button(self, label="&Reply")
+		self.boost_button = wx.Button(self, label="Unboost" if self.status["reblogged"] else "&Boost")
+		self.fav_button = wx.Button(self, label="Unfavourite" if self.status["favourited"] else "&Favourite")
+		self.profile_button = wx.Button(self, label=f"View &Profile of {display_name}")
+		self.close_button = wx.Button(self, label="&Close",id=wx.ID_CANCEL)
 
 		self.reply_button.Bind(wx.EVT_BUTTON, self.reply)
 		self.boost_button.Bind(wx.EVT_BUTTON, self.toggle_boost)
 		self.fav_button.Bind(wx.EVT_BUTTON, self.toggle_fav)
 		self.profile_button.Bind(wx.EVT_BUTTON, lambda e: ViewProfileDialog(self, self.account).ShowModal())
-		self.close_button.Bind(wx.EVT_BUTTON, lambda e: self.Close())
+		self.close_button.Bind(wx.EVT_CLOSE, lambda e: self.Close())
 
 		sizer = wx.BoxSizer(wx.VERTICAL)
 		sizer.Add(self.content_box, 1, wx.ALL | wx.EXPAND, 5)
@@ -79,19 +104,19 @@ Language: {language}"""
 		panel = wx.Panel(dialog)
 		vbox = wx.BoxSizer(wx.VERTICAL)
 
-		username = self.account.get("acct", "")
 		label = wx.StaticText(panel, label="Reply message:")
-		reply_text = wx.TextCtrl(panel, style=wx.TE_MULTILINE, size=(480, 100))
-		reply_text.SetValue(f"@{username} ")
+		self.reply_text = wx.TextCtrl(panel, style=wx.TE_MULTILINE, size=(480, 100))
+		self.reply_text.SetValue(("@"+self.reply_users if self.reply_users!="" else ""))
+		self.reply_text.SetInsertionPoint(len(self.reply_text.GetValue()))
 
 		send_button = wx.Button(panel, label="Send Reply")
-		cancel_button = wx.Button(panel, label="Cancel")
+		cancel_button = wx.Button(panel, label="Cancel",id=wx.ID_CANCEL)
 
-		send_button.Bind(wx.EVT_BUTTON, lambda e: self.send_reply(dialog, reply_text.GetValue()))
-		cancel_button.Bind(wx.EVT_BUTTON, lambda e: dialog.Close())
+		send_button.Bind(wx.EVT_BUTTON, lambda e: self.send_reply(dialog, self.reply_text.GetValue()))
+		cancel_button.Bind(wx.EVT_CLOSE, lambda e: dialog.Close())
 
 		vbox.Add(label, 0, wx.LEFT | wx.RIGHT | wx.TOP, 10)
-		vbox.Add(reply_text, 1, wx.LEFT | wx.RIGHT | wx.BOTTOM | wx.EXPAND, 10)
+		vbox.Add(self.reply_text, 1, wx.LEFT | wx.RIGHT | wx.BOTTOM | wx.EXPAND, 10)
 
 		buttons = wx.BoxSizer(wx.HORIZONTAL)
 		buttons.Add(send_button, 0, wx.ALL, 5)
@@ -99,9 +124,17 @@ Language: {language}"""
 		vbox.Add(buttons, 0, wx.ALIGN_RIGHT | wx.RIGHT | wx.BOTTOM, 10)
 
 		panel.SetSizer(vbox)
+		dialog.Bind(wx.EVT_CHAR_HOOK, self.on_reply_key_press)
 		dialog.ShowModal()
 		dialog.Destroy()
-
+	
+	def on_reply_key_press(self, event):
+		mods = event.HasAnyModifiers()
+		if event.GetKeyCode() == wx.WXK_RETURN and mods:
+			self.send_reply(event.EventObject.Parent.Parent, self.reply_text.GetValue())
+		else:
+			event.Skip()
+	
 	def send_reply(self, dialog, text):
 		text = text.strip()
 		if not text:

@@ -62,6 +62,28 @@ Shift once from the post textbox and you'll see a list of posts from users on yo
 Pressing Enter on a post will bring up a dialog where you can find various details about the post, such as who posted it, what client they used, when it was posted, replies, boosts and favourites. Tab around this dialog and you'll also see options to reply to, boost and favourite the post. Press Escape to close this dialog.
 Note: you will only see the user's client if the post was sent from the same instance as the one you're on. Otherwise, it will show as unknown. This is because client data doesn't federate across instances.
 
+## Sound packs
+
+### What are sound packs?
+
+Sound packs are collections of sounds that Thrive uses to indicate user actions and program events. In terms of structure, a sound pack is essentially a folder with wave files stored inside it.
+
+### Creating and adding sound packs
+
+You can use the default sound pack as a basis when creating your own sound packs. To add a sound pack, create a folder inside Thrive's sounds folder called mastodon-packname, replacing packname with your desired sound pack name, then add your wave files into the folder. Be sure to check your filenames against the default folder, otherwise your sounds might not play.
+
+### Changing sound packs.
+
+For now, you can change sound packs by doing the following:
+
+1. If Thrive is open, shut it down with Alt F4.
+2. Navigate to the Thrive program folder and open thrive.ini in a text editor like Notepad.
+3. You will see a line that says soundpack=default. Change default to your desired sound pack name, E.G. soundpack=packname.
+4. Hit Control S to save the file and close your text editor.
+5. Launch Thrive again and enjoy your new sounds!
+
+Note: The folder structure for sound packs is the same as the [TweeseCake](https://tweesecake.app) program, so if you have a TweeseCake sound pack you wish to port over to Thrive, no converting or renaming of files is needed.
+
 ## Credits
 
 * Alex Chapman: initial product idea and development.
