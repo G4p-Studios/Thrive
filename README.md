@@ -23,20 +23,30 @@ These instructions apply to the Windows operating system, so you will also need 
 2. Clone this repository with git by running the following command.
 git clone https://github.com/G4p-Studios/Thrive.git
 3. Create a virtual Python environment. This will allow you to install libraries and run Thrive inside an isolated workspace without touching your main Python install.
-  * cd Thrive
-  * python -m venv venv
-4. Activate the virtual environment.
-venv\scripts\activate
-5. Ensure that pip, setuptools and wheel are up to date to avoid errors installing libraries.
-python -m pip install --upgrade pip setuptools wheel
-6. Install the libraries needed for Thrive.
-pip install -r requirements.txt
-7. Run Thrive.
-  * cd mastodon
-  * python thrive.py
+```
+cd Thrive
+python -m venv venv
+```
 
+4. Activate the virtual environment.
+```
+venv\scripts\activate
+```
+5. Ensure that pip, setuptools and wheel are up to date to avoid errors installing libraries.
+```
+python -m pip install --upgrade pip setuptools wheel
+```
+6. Install the libraries needed for Thrive.
+```
+pip install -r requirements.txt
+```
+7. Run Thrive.
+```
+cd mastodon
+python thrive.py
+```
 ### Compiled.
-If you just want a pre-compiled binary without having to fight with Python, you can [download the latest release here](https://github.com/G4p-Studios/Thrive/releases/download/v0.0.3.0-alpha3/thrive.zip). To run this, simply extract the zip file and run thrive.exe.
+If you just want a pre-compiled binary without having to fight with Python, you can [download the latest release here](https://github.com/G4p-Studios/Thrive/releases/download/v0.0.4.0-alpha4/thrive.zip). To run this, simply extract the zip file and run thrive.exe.
 The pre-compiled Thrive binary runs on Windows 7 and higher.
 
 ## Authorising to Mastodon
@@ -66,7 +76,7 @@ Note: you will only see the user's client if the post was sent from the same ins
 
 ### What are sound packs?
 
-Sound packs are collections of sounds that Thrive uses to indicate user actions and program events. In terms of structure, a sound pack is essentially a folder with wave files stored inside it.
+Sound packs are collections of sounds that Thrive uses to indicate user actions and program events. In terms of structure, a sound pack is essentially a folder with wave files inside of it.
 
 ### Creating and adding sound packs
 
@@ -74,13 +84,12 @@ You can use the default sound pack as a basis when creating your own sound packs
 
 ### Changing sound packs.
 
-For now, you can change sound packs by doing the following:
+you can change sound packs by doing the following:
 
-1. If Thrive is open, shut it down with Alt F4.
-2. Navigate to the Thrive program folder and open thrive.ini in a text editor like Notepad.
-3. You will see a line that says soundpack=default. Change default to your desired sound pack name, E.G. soundpack=packname.
-4. Hit Control S to save the file and close your text editor.
-5. Launch Thrive again and enjoy your new sounds!
+1. Press Alt + S to open the settings dialog.
+2. Choose the sound pack you want from the dropdown menu, tab to the save button and press either Space or Enter.
+3. Shut down Thrive with Alt F4.
+4. Restart  Thrive again and enjoy your new sounds!
 
 Note: The folder structure for sound packs is the same as the [TweeseCake](https://tweesecake.app) program, so if you have a TweeseCake sound pack you wish to port over to Thrive, no converting or renaming of files is needed.
 

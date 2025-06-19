@@ -8,8 +8,6 @@ class ViewProfileDialog(wx.Dialog):
 		title = f"Profile for {display_name} ({acct})"
 		super().__init__(parent, title=title, size=(600, 400))
 
-		self.Bind(wx.EVT_CHAR_HOOK, self.on_key)
-
 		username = account.get("username", "")
 		bio = strip_html(account.get("note", ""))
 		followers = account.get("followers_count", 0)
@@ -33,8 +31,8 @@ Last post: {last_post}
 Website: {website}"""
 
 		self.text = wx.TextCtrl(self, value=info, style=wx.TE_MULTILINE | wx.TE_READONLY)
-		self.close_button = wx.Button(self, label="Close")
-		self.close_button.Bind(wx.EVT_BUTTON, lambda e: self.Close())
+		self.close_button = wx.Button(self, label="&Close",id=wx.ID_CANCEL)
+		self.close_button.Bind(wx.EVT_CLOSE, lambda e: self.Close())
 
 		sizer = wx.BoxSizer(wx.VERTICAL)
 		sizer.Add(self.text, 1, wx.ALL | wx.EXPAND, 10)
@@ -42,9 +40,3 @@ Website: {website}"""
 
 		self.SetSizer(sizer)
 		self.text.SetFocus()
-
-	def on_key(self, event):
-		if event.GetKeyCode() == wx.WXK_ESCAPE:
-			self.Close()
-		else:
-			event.Skip()

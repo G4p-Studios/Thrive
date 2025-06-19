@@ -6,28 +6,13 @@ from sound_lib import stream
 from sound_lib import output as o
 from sound_lib.main import BassError
 from easysettings import EasySettings
+import main_frame
 out = o.Output()
 if not os.path.exists("thrive.ini"):
 	conf = EasySettings("thrive.ini")
 	conf.setsave("soundpack", "default")
 else:
 	conf = EasySettings("thrive.ini")
-try:
-	replysnd = stream.FileStream(file = "sounds/mastodon-" + conf.get("soundpack") + "/send_reply.wav")
-except BassError:
-	pass
-try:
-	favsnd = stream.FileStream(file = "sounds/mastodon-" + conf.get("soundpack") + "/favorite.wav")
-except BassError:
-	pass
-try:
-	boostsnd = stream.FileStream(file = "sounds/mastodon-" + conf.get("soundpack") + "/send_boost.wav")
-except BassError:
-	pass
-try:
-	unfavsnd = stream.FileStream(file = "sounds/mastodon-" + conf.get("soundpack") + "/unfavorite.wav")
-except BassError:
-	pass
 class PostDetailsDialog(wx.Dialog):
 	def __init__(self, parent, mastodon, status):
 		account = status["account"]
@@ -142,7 +127,7 @@ Language: {language}"""
 			return
 		try:
 			self.mastodon.status_post(text, in_reply_to_id=self.status["id"])
-			replysnd.play()
+			main_frame.replysnd.play()
 			dialog.Close()
 		except Exception as e:
 			wx.MessageBox(f"Error sending reply: {e}", "Error", wx.OK | wx.ICON_ERROR)
@@ -153,7 +138,7 @@ Language: {language}"""
 				self.mastodon.status_unreblog(self.status["id"])
 				self.boost_button.SetLabel("Boost")
 			else:
-				boostsnd.play()
+				main_frame.boostsnd.play()
 				self.mastodon.status_reblog(self.status["id"])
 				self.boost_button.SetLabel("Unboost")
 			self.status["reblogged"] = not self.status["reblogged"]
@@ -163,14 +148,13 @@ Language: {language}"""
 	def toggle_fav(self, event):
 		try:
 			if self.status["favourited"]:
-				unfavsnd.play()
+				main_frame.unfavsnd.play()
 				self.mastodon.status_unfavourite(self.status["id"])
 				self.fav_button.SetLabel("Favourite")
 			else:
-				favsnd.play()
+				main_frame.favsnd.play()
 				self.mastodon.status_favourite(self.status["id"])
 				self.fav_button.SetLabel("Unfavourite")
-				favsnd.play()
 			self.status["favourited"] = not self.status["favourited"]
 		except Exception as e:
 			wx.MessageBox(f"Error: {e}", "Favourite Error")
