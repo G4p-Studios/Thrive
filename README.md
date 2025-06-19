@@ -48,7 +48,7 @@ cd mastodon
 python thrive.py
 ```
 ### Compiled.
-If you just want a pre-compiled binary without having to fight with Python, you can [download the latest release here](https://github.com/G4p-Studios/Thrive/releases/download/v0.0.4.0-alpha4/thrive.zip). To run this, simply extract the zip file and run thrive.exe.
+If you just want a pre-compiled binary without having to fight with Python, you can [download the latest release here](https://github.com/G4p-Studios/Thrive/releases/latest/download/thrive.zip). To run this, simply extract the zip file and run thrive.exe.
 The pre-compiled Thrive binary runs on Windows 7 and higher.
 
 ## Authorising to Mastodon
