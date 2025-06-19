@@ -21,7 +21,9 @@ These instructions apply to the Windows operating system, so you will also need 
 
 1. Press Windows + R, type cmd, and press Enter to launch the command prompt.
 2. Clone this repository with git by running the following command.
+```
 git clone https://github.com/G4p-Studios/Thrive.git
+```
 3. Create a virtual Python environment. This will allow you to install libraries and run Thrive inside an isolated workspace without touching your main Python install.
 ```
 cd Thrive
