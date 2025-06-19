@@ -66,7 +66,16 @@ Your user data is stored inside a file called user.dat inside the Thrive folder.
 
 ## Posting to Mastodon
 
-Once Thrive is authorised, you will land on a textbox where you can write a Mastodon post. You can optionally add a content warning if your post is very long or contains content that might upset people. Once you check the content warning box, Shift Tab once to access the content warning title field and enter your warning. Once done, tab to the post button and press Enter or Space.
+Once Thrive is authorised, you will land on a textbox where you can write a Mastodon post, also called a toot. You can optionally add a content warning if your toot is very long or contains content that might upset people. Once you check the content warning box, Shift Tab once to access the content warning title field and enter your warning. Once done, tab to the post button and press Enter or Space.
+
+## Toot privacy settings
+
+When writing toots or replies, you can choose a privacy setting that controls who can see the toot. In Thrive, there are 4 privacy settings to choose from:
+
+* Public. Anyone can see the toot, even those who don't have an account on any Mastodon instance.
+* Unlisted. Also known as Quiet Public, this means that the toot does not appear in search results, nor does it show up on an instance's local or federated timeline. This is useful when replying in threads because it prevents local/federated timelines and search results getting too cluttered.
+* Followers Only. Only your followers can see these toots,. Because of this, they cannot be boosted.
+* Direct. Only people you mention (@user@instance.tld) can see these toots.
 
 ## Viewing and interacting with posts.
 

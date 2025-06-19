@@ -37,7 +37,10 @@ class ThriveFrame(wx.Frame):
     def __init__(self, *args, mastodon=None, **kwargs):
         super().__init__(*args, **kwargs, size=(800, 600))
         self.mastodon = mastodon
+        self.me = self.mastodon.me()
         self.status_map = []
+        self.privacy_options = ["Public", "Unlisted", "Followers-only", "Direct"]
+        self.privacy_values = ["public", "unlisted", "private", "direct"]
 
         self.panel = wx.Panel(self)
         
@@ -60,6 +63,10 @@ class ThriveFrame(wx.Frame):
         self.cw_input.Hide()
         self.cw_label.Hide()
 
+        self.privacy_label = wx.StaticText(self.panel, label="P&rivacy:")
+        self.privacy_choice = wx.Choice(self.panel, choices=self.privacy_options)
+        self.privacy_choice.SetSelection(0)
+
         self.post_button = wx.Button(self.panel, label="Po&st")
         self.post_button.Bind(wx.EVT_BUTTON, self.on_post)
 
@@ -74,6 +81,8 @@ class ThriveFrame(wx.Frame):
         vbox.Add(self.cw_label, 0, wx.LEFT | wx.RIGHT, 5)
         vbox.Add(self.cw_input, 0, wx.ALL | wx.EXPAND, 5)
         vbox.Add(self.cw_toggle, 0, wx.ALL, 5)
+        vbox.Add(self.privacy_label, 0, wx.LEFT | wx.RIGHT | wx.TOP, 5)
+        vbox.Add(self.privacy_choice, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM | wx.EXPAND, 5)
         vbox.Add(self.post_button, 0, wx.ALL | wx.CENTER, 5)
         vbox.Add(self.exit_button, 0, wx.ALL | wx.CENTER, 5)
         vbox.Add(self.posts_label, 0, wx.ALL | wx.EXPAND, 5)
@@ -109,10 +118,42 @@ class ThriveFrame(wx.Frame):
         mods = event.HasAnyModifiers()
         if event.GetKeyCode() == wx.WXK_RETURN and self.FindFocus() == self.posts_list:
             self.show_post_details()
+        elif event.GetKeyCode() == wx.WXK_DELETE and self.FindFocus() == self.posts_list:
+            self.delete_selected_post()
         elif event.GetKeyCode() == wx.WXK_RETURN and self.FindFocus() == self.toot_input and mods:
             self.on_post(event)
         else:
             event.Skip()
+
+    def delete_selected_post(self):
+        selection = self.posts_list.GetSelection()
+        if selection == wx.NOT_FOUND:
+            return
+
+        status = self.status_map[selection]
+
+        if status['account']['id'] != self.me['id']:
+            wx.MessageBox("Stop trying to take down other people's posts. I know you probably want to, but it just won't work.", "Error", wx.OK | wx.ICON_ERROR)
+            return
+
+        is_reblog = status.get("reblog") is not None
+
+        if is_reblog:
+            confirm = wx.MessageBox("Are you sure you want to unboost this post?", "Confirm Unboost", wx.YES_NO | wx.ICON_QUESTION)
+            if confirm == wx.YES:
+                try:
+                    self.mastodon.status_unreblog(status['reblog']['id'])
+                    self.update_posts()
+                except Exception as e:
+                    wx.MessageBox(f"Error unboosting: {e}", "Error", wx.OK | wx.ICON_ERROR)
+        else: # Original post
+            confirm = wx.MessageBox("Are you sure you want to take down this post? It will be removed from Mastodon. This action cannot be undone.", "Confirm Deletion", wx.YES_NO | wx.ICON_WARNING)
+            if confirm == wx.YES:
+                try:
+                    self.mastodon.status_delete(status['id'])
+                    self.update_posts()
+                except Exception as e:
+                    wx.MessageBox(f"Error deleting post: {e}", "Error", wx.OK | wx.ICON_ERROR)
 
     def on_toggle_cw(self, event):
         show = self.cw_toggle.IsChecked()
@@ -123,11 +164,13 @@ class ThriveFrame(wx.Frame):
     def on_post(self, event):
         status = self.toot_input.GetValue().strip()
         spoiler = self.cw_input.GetValue().strip() if self.cw_toggle.IsChecked() else None
+        selected_privacy_index = self.privacy_choice.GetSelection()
+        visibility = self.privacy_values[selected_privacy_index]
         if not status:
             wx.MessageBox("Cannot post empty status.", "Error")
             return
         try:
-            self.mastodon.status_post(status, spoiler_text=spoiler)
+            self.mastodon.status_post(status, spoiler_text=spoiler, visibility=visibility)
             if tootsnd:
                 tootsnd.play()
             self.toot_input.SetValue("")
@@ -188,6 +231,6 @@ class ThriveFrame(wx.Frame):
         selection = self.posts_list.GetSelection()
         if 0 <= selection < len(self.status_map):
             status = self.status_map[selection]
-            dlg = PostDetailsDialog(self, self.mastodon, status)
+            dlg = PostDetailsDialog(self, self.mastodon, status, self.me)
             dlg.ShowModal()
             dlg.Destroy()
