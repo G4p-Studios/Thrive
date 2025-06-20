@@ -2,6 +2,7 @@ import wx
 import threading
 import os
 from datetime import datetime
+from mastodon import StreamListener # Import the StreamListener
 from utils import strip_html, get_time_ago
 from post_dialog import PostDetailsDialog
 from settings_dialog import SettingsDialog
@@ -33,6 +34,23 @@ try:
     unfavsnd = stream.FileStream(file="sounds/" + folder + "/unfavorite.wav")
 except BassError:
     unfavsnd = None
+
+# --- NEW: Custom Stream Listener ---
+class CustomStreamListener(StreamListener):
+    def __init__(self, frame):
+        super().__init__()
+        # Store a reference to the main frame to call its methods
+        self.frame = frame
+
+    def on_update(self, status):
+        """A new status has appeared!"""
+        # This runs in a background thread, so we use CallAfter for the UI update
+        wx.CallAfter(self.frame.add_new_post, status)
+
+    def on_delete(self, status_id):
+        """A status has been deleted."""
+        wx.CallAfter(self.frame.handle_post_deletion, status_id)
+
 class ThriveFrame(wx.Frame):
     def __init__(self, *args, mastodon=None, **kwargs):
         super().__init__(*args, **kwargs, size=(800, 600))
@@ -91,10 +109,13 @@ class ThriveFrame(wx.Frame):
         self.panel.SetSizer(vbox)
         self.Bind(wx.EVT_CHAR_HOOK, self.on_key_press)
 
-        self.refresh_timer = wx.Timer(self)
-        self.Bind(wx.EVT_TIMER, self.update_posts)
-        self.refresh_timer.Start(60000)
-        self.update_posts()
+        # --- MODIFIED: Start initial load and then streaming ---
+        # The refresh timer is no longer needed
+        # self.refresh_timer = wx.Timer(self)
+        # self.Bind(wx.EVT_TIMER, self.update_posts)
+        # self.refresh_timer.Start(60000)
+        self.initial_load_posts()
+        self.start_streaming()
 
     @property
     def conf(self):
@@ -142,16 +163,17 @@ class ThriveFrame(wx.Frame):
             confirm = wx.MessageBox("Are you sure you want to unboost this post?", "Confirm Unboost", wx.YES_NO | wx.ICON_QUESTION)
             if confirm == wx.YES:
                 try:
-                    self.mastodon.status_unreblog(status['reblog']['id'])
-                    self.update_posts()
+                    # After unboosting, the stream will send a 'delete' event for the boost,
+                    # so we don't need to manually update the list here.
+                    self.mastodon.status_unreblog(status['id'])
                 except Exception as e:
                     wx.MessageBox(f"Error unboosting: {e}", "Error", wx.OK | wx.ICON_ERROR)
         else: # Original post
             confirm = wx.MessageBox("Are you sure you want to take down this post? It will be removed from Mastodon. This action cannot be undone.", "Confirm Deletion", wx.YES_NO | wx.ICON_WARNING)
             if confirm == wx.YES:
                 try:
+                    # The stream will send a 'delete' event, removing it from the list.
                     self.mastodon.status_delete(status['id'])
-                    self.update_posts()
                 except Exception as e:
                     wx.MessageBox(f"Error deleting post: {e}", "Error", wx.OK | wx.ICON_ERROR)
 
@@ -170,6 +192,7 @@ class ThriveFrame(wx.Frame):
             wx.MessageBox("Cannot post empty status.", "Error")
             return
         try:
+            # The stream will pick up our own new post, so we don't need to manually refresh.
             self.mastodon.status_post(status, spoiler_text=spoiler, visibility=visibility)
             if tootsnd:
                 tootsnd.play()
@@ -177,15 +200,14 @@ class ThriveFrame(wx.Frame):
             self.cw_input.SetValue("")
             self.cw_toggle.SetValue(False)
             self.on_toggle_cw(None)
-            self.update_posts()
+            # self.update_posts() # No longer needed
         except Exception as e:
             wx.MessageBox(f"Error: {e}", "Post Error")
 
-    def update_posts(self, event=None):
+    # --- REFACTORED: This method is now only for the initial load ---
+    def initial_load_posts(self):
         def fetch_and_update():
-            self.status_map.clear()
-            wx.CallAfter(self.posts_list.Clear)
-
+            # This logic remains largely the same, but it populates the list once.
             try:
                 statuses = self.mastodon.timeline_home(limit=40)
                 for s in statuses:
@@ -193,32 +215,9 @@ class ThriveFrame(wx.Frame):
                         s["created_at"] = datetime.fromisoformat(s["created_at"].replace("Z", "+00:00"))
                 statuses.sort(key=lambda s: s["created_at"], reverse=True)
 
+                # Use CallAfter to ensure thread-safety, even on initial load
                 for status in statuses:
-                    display = ""
-                    if status.get("reblog"):
-                        boost = status["reblog"]
-                        user = status["account"]["display_name"] or status["account"]["username"]
-                        original_user = boost["account"]["display_name"] or boost["account"]["username"]
-                        handle = boost["account"]["acct"]
-                        content = strip_html(boost["content"]).strip()
-                        boost_app = boost.get("application")
-                        boost_source = boost_app["name"] if boost_app and "name" in boost_app else "Unknown"
-                        if boost["spoiler_text"]:
-                            display = f"{user}: Content warning: {boost['spoiler_text']}. Press enter on this post to see the text."
-                        else:
-                            display = f"{user}: Boosting {original_user} ({handle}): {content}"
-                        display += f" — {get_time_ago(boost['created_at'])}, {boost_source}"
-                    else:
-                        user = status["account"]["display_name"] or status["account"]["username"]
-                        content = strip_html(status["content"]).strip()
-                        app_info = status.get("application")
-                        source = app_info["name"] if app_info and "name" in app_info else "Unknown"
-                        if status["spoiler_text"]:
-                            display = f"{user}: Content warning: {status['spoiler_text']}. Press enter on this post to see the text."
-                        else:
-                            display = f"{user}: {content}"
-                        display += f" — {get_time_ago(status['created_at'])}, {source}"
-
+                    display = self.format_status_for_display(status)
                     wx.CallAfter(self.status_map.append, status)
                     wx.CallAfter(self.posts_list.Append, display)
 
@@ -226,6 +225,67 @@ class ThriveFrame(wx.Frame):
                 wx.CallAfter(self.posts_list.Append, f"Error loading posts: {e}")
 
         threading.Thread(target=fetch_and_update, daemon=True).start()
+
+    # --- NEW: Method to start the streaming thread ---
+    def start_streaming(self):
+        listener = CustomStreamListener(self)
+        # run stream_user in a daemon thread so it doesn't block app exit
+        threading.Thread(target=self.mastodon.stream_user, args=(listener,), daemon=True).start()
+
+    # --- NEW: Callback for the stream listener to add a new post ---
+    def add_new_post(self, status):
+        """Inserts a new post at the top of the list."""
+        if isinstance(status["created_at"], str):
+            status["created_at"] = datetime.fromisoformat(status["created_at"].replace("Z", "+00:00"))
+        
+        display = self.format_status_for_display(status)
+        self.status_map.insert(0, status)
+        self.posts_list.Insert(display, 0)
+
+    # --- NEW: Callback for the stream listener to handle a deletion ---
+    def handle_post_deletion(self, status_id):
+        """Finds and removes a deleted post from the list."""
+        # We need to find the index of the status to remove it
+        index_to_delete = -1
+        for i, status in enumerate(self.status_map):
+            # A 'delete' event can be for an original post or a boost.
+            # The ID we get is for the item that was deleted from the timeline.
+            if status['id'] == status_id:
+                index_to_delete = i
+                break
+        
+        if index_to_delete != -1:
+            del self.status_map[index_to_delete]
+            self.posts_list.Delete(index_to_delete)
+
+    # --- NEW: Helper method to format a status consistently ---
+    def format_status_for_display(self, status):
+        """Generates the display string for a given status dictionary."""
+        display = ""
+        if status.get("reblog"):
+            boost = status["reblog"]
+            user = status["account"]["display_name"] or status["account"]["username"]
+            original_user = boost["account"]["display_name"] or boost["account"]["username"]
+            handle = boost["account"]["acct"]
+            content = strip_html(boost["content"]).strip()
+            boost_app = boost.get("application")
+            boost_source = boost_app["name"] if boost_app and "name" in boost_app else "Unknown"
+            if boost["spoiler_text"]:
+                display = f"{user}: Content warning: {boost['spoiler_text']}. Press enter on this post to see the text."
+            else:
+                display = f"{user}: Boosting {original_user} ({handle}): {content}"
+            display += f" — {get_time_ago(boost['created_at'])}, {boost_source}"
+        else:
+            user = status["account"]["display_name"] or status["account"]["username"]
+            content = strip_html(status["content"]).strip()
+            app_info = status.get("application")
+            source = app_info["name"] if app_info and "name" in app_info else "Unknown"
+            if status["spoiler_text"]:
+                display = f"{user}: Content warning: {status['spoiler_text']}. Press enter on this post to see the text."
+            else:
+                display = f"{user}: {content}"
+            display += f" — {get_time_ago(status['created_at'])}, {source}"
+        return display
 
     def show_post_details(self, event=None):
         selection = self.posts_list.GetSelection()
