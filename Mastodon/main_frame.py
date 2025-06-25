@@ -34,6 +34,18 @@ try:
     unfavsnd = stream.FileStream(file="sounds/" + folder + "/unfavorite.wav")
 except BassError:
     unfavsnd = None
+try:
+    newtootsnd = stream.FileStream(file="sounds/" + folder + "/new_toot.wav")
+except BassError:
+    newtootsnd = None
+try:
+    dmsnd = stream.FileStream(file="sounds/" + folder + "/new_dm.wav")
+except BassError:
+    dmsnd = None
+try:
+    mentionsnd = stream.FileStream(file="sounds/" + folder + "/new_mention.wav")
+except BassError:
+    mentionsnd = None
 
 # --- NEW: Custom Stream Listener ---
 class CustomStreamListener(StreamListener):
@@ -46,6 +58,17 @@ class CustomStreamListener(StreamListener):
         """A new status has appeared!"""
         # This runs in a background thread, so we use CallAfter for the UI update
         wx.CallAfter(self.frame.add_new_post, status)
+        visibility = status.get("visibility")
+        mentions = status.get("mentions", [])
+        is_dm = visibility == "direct"
+        is_mention = any(user['id'] == self.frame.me['id'] for user in mentions)
+
+        if is_dm and dmsnd:
+            dmsnd.play()
+        elif is_mention and mentionsnd:
+            mentionsnd.play()
+        elif newtootsnd:
+            newtootsnd.play()
 
     def on_delete(self, status_id):
         """A status has been deleted."""
