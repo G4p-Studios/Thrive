@@ -2,7 +2,7 @@ import wx
 import threading
 import os
 from datetime import datetime
-from mastodon import StreamListener # Import the StreamListener
+from mastodon import StreamListener
 from utils import strip_html, get_time_ago
 from post_dialog import PostDetailsDialog
 from settings_dialog import SettingsDialog
@@ -55,8 +55,6 @@ class CustomStreamListener(StreamListener):
         self.frame = frame
 
     def on_update(self, status):
-        """A new status has appeared!"""
-        # This runs in a background thread, so we use CallAfter for the UI update
         wx.CallAfter(self.frame.add_new_post, status)
         visibility = status.get("visibility")
         mentions = status.get("mentions", [])
@@ -71,7 +69,6 @@ class CustomStreamListener(StreamListener):
             newtootsnd.play()
 
     def on_delete(self, status_id):
-        """A status has been deleted."""
         wx.CallAfter(self.frame.handle_post_deletion, status_id)
 
 class ThriveFrame(wx.Frame):
@@ -84,10 +81,10 @@ class ThriveFrame(wx.Frame):
         self.privacy_values = ["public", "unlisted", "private", "direct"]
 
         self.panel = wx.Panel(self)
-        
+
         menubar = wx.MenuBar()
         settings_menu = wx.Menu()
-        settings_item = settings_menu.Append(wx.ID_ANY, "&Settings...	Alt-S", "Open Settings")
+        settings_item = settings_menu.Append(wx.ID_ANY, "&Settings...\tAlt-S", "Open Settings")
         self.Bind(wx.EVT_MENU, self.open_settings, settings_item)
         menubar.Append(settings_menu, "&Settings")
         self.SetMenuBar(menubar)
@@ -115,7 +112,22 @@ class ThriveFrame(wx.Frame):
         self.exit_button.Bind(wx.EVT_BUTTON, lambda e: self.Close())
 
         self.posts_label = wx.StaticText(self.panel, label="Posts &List:")
-        self.posts_list = wx.ListBox(self.panel, style=wx.LB_SINGLE, size=(780, 200))
+
+        self.timeline_tree = wx.TreeCtrl(self.panel, style=wx.TR_HAS_BUTTONS | wx.TR_HIDE_ROOT)
+        self.root = self.timeline_tree.AddRoot("Timelines")
+        self.timeline_nodes = {
+            "home": self.timeline_tree.AppendItem(self.root, "Home"),
+            "sent": self.timeline_tree.AppendItem(self.root, "Sent"),
+            "notifications": self.timeline_tree.AppendItem(self.root, "Notifications"),
+            "mentions": self.timeline_tree.AppendItem(self.root, "Mentions")
+        }
+        self.timeline_tree.Bind(wx.EVT_TREE_SEL_CHANGED, self.on_timeline_selected)
+
+        self.posts_list = wx.ListBox(self.panel, style=wx.LB_SINGLE)
+
+        hbox = wx.BoxSizer(wx.HORIZONTAL)
+        hbox.Add(self.timeline_tree, 0, wx.EXPAND | wx.ALL, 5)
+        hbox.Add(self.posts_list, 1, wx.EXPAND | wx.ALL, 5)
 
         vbox.Add(self.toot_label, 0, wx.ALL | wx.EXPAND, 5)
         vbox.Add(self.toot_input, 0, wx.ALL | wx.EXPAND, 5)
@@ -127,20 +139,59 @@ class ThriveFrame(wx.Frame):
         vbox.Add(self.post_button, 0, wx.ALL | wx.CENTER, 5)
         vbox.Add(self.exit_button, 0, wx.ALL | wx.CENTER, 5)
         vbox.Add(self.posts_label, 0, wx.ALL | wx.EXPAND, 5)
-        vbox.Add(self.posts_list, 1, wx.ALL | wx.EXPAND, 5)
+        vbox.Add(hbox, 1, wx.EXPAND, 0)
 
         self.panel.SetSizer(vbox)
         self.Bind(wx.EVT_CHAR_HOOK, self.on_key_press)
 
-        # --- MODIFIED: Start initial load and then streaming ---
-        # The refresh timer is no longer needed
-        # self.refresh_timer = wx.Timer(self)
-        # self.Bind(wx.EVT_TIMER, self.update_posts)
-        # self.refresh_timer.Start(60000)
-        self.initial_load_posts()
+        self.timeline_tree.SelectItem(self.timeline_nodes["home"])
         self.start_streaming()
 
-    @property
+    def on_timeline_selected(self, event):
+        item = event.GetItem()
+        for key, node in self.timeline_nodes.items():
+            if node == item:
+                self.load_timeline(key)
+                break
+
+    def load_timeline(self, timeline):
+        self.status_map.clear()
+        self.posts_list.Clear()
+
+        def fetch():
+            try:
+                if timeline == "home":
+                    statuses = self.mastodon.timeline_home(limit=40)
+                elif timeline == "sent":
+                    statuses = self.mastodon.account_statuses(self.me["id"], limit=40)
+                elif timeline == "notifications":
+                    notifications = self.mastodon.notifications(limit=40)
+                    statuses = []
+                    for n in notifications:
+                        if "status" in n and n["status"]:
+                            n["status"]["_notify_type"] = n["type"]
+                            statuses.append(n["status"])
+                elif timeline == "mentions":
+                    statuses = self.mastodon.notifications(types=["mention"], limit=40)
+                    statuses = [n["status"] for n in statuses if "status" in n and n["status"]]
+                else:
+                    statuses = []
+
+                for s in statuses:
+                    if isinstance(s["created_at"], str):
+                        s["created_at"] = datetime.fromisoformat(s["created_at"].replace("Z", "+00:00"))
+                statuses.sort(key=lambda s: s["created_at"], reverse=True)
+
+                for status in statuses:
+                    display = self.format_status_for_display(status)
+                    wx.CallAfter(self.status_map.append, status)
+                    wx.CallAfter(self.posts_list.Append, display)
+
+            except Exception as e:
+                wx.CallAfter(self.posts_list.Append, f"Error loading {timeline}: {e}")
+
+        threading.Thread(target=fetch, daemon=True).start()
+
     def conf(self):
         return EasySettings("thrive.ini")
 
@@ -260,7 +311,6 @@ class ThriveFrame(wx.Frame):
         """Inserts a new post at the top of the list."""
         if isinstance(status["created_at"], str):
             status["created_at"] = datetime.fromisoformat(status["created_at"].replace("Z", "+00:00"))
-        
         display = self.format_status_for_display(status)
         self.status_map.insert(0, status)
         self.posts_list.Insert(display, 0)
@@ -276,7 +326,7 @@ class ThriveFrame(wx.Frame):
             if status['id'] == status_id:
                 index_to_delete = i
                 break
-        
+
         if index_to_delete != -1:
             del self.status_map[index_to_delete]
             self.posts_list.Delete(index_to_delete)
