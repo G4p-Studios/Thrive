@@ -35,7 +35,7 @@ class AuthFrame(wx.Frame):
 
 		try:
 			client_id, client_secret = Mastodon.create_app(
-				"ThriveClient",
+				"Thrive",
 				api_base_url=instance_url,
 				scopes=["read", "write", "follow"]
 			)
