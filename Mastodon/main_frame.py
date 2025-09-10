@@ -1,66 +1,64 @@
 import wx
 import threading
-import os
 from datetime import datetime
 from mastodon import StreamListener
 from utils import strip_html, get_time_ago
 from post_dialog import PostDetailsDialog
 from settings_dialog import SettingsDialog
 from sound_lib import stream
-from sound_lib import output as o
 from sound_lib.main import BassError
 from easysettings import EasySettings
 
+# --- Sound loading at startup ---
 try:
     conf = EasySettings("thrive.ini")
     soundpack = conf.get("soundpack", "default")
     folder = "Mastodon-" + soundpack
-    tootsnd = stream.FileStream(file="sounds/" + folder + "/send_toot.wav")
+    tootsnd = stream.FileStream(file=f"sounds/{folder}/send_toot.wav")
 except BassError:
     tootsnd = None
 try:
-    replysnd = stream.FileStream(file="sounds/" + folder + "/send_reply.wav")
+    replysnd = stream.FileStream(file=f"sounds/{folder}/send_reply.wav")
 except BassError:
     replysnd = None
 try:
-    boostsnd = stream.FileStream(file="sounds/" + folder + "/send_boost.wav")
+    boostsnd = stream.FileStream(file=f"sounds/{folder}/send_boost.wav")
 except BassError:
     boostsnd = None
 try:
-    favsnd = stream.FileStream(file="sounds/" + folder + "/favorite.wav")
+    favsnd = stream.FileStream(file=f"sounds/{folder}/favorite.wav")
 except BassError:
     favsnd = None
 try:
-    unfavsnd = stream.FileStream(file="sounds/" + folder + "/unfavorite.wav")
+    unfavsnd = stream.FileStream(file=f"sounds/{folder}/unfavorite.wav")
 except BassError:
     unfavsnd = None
 try:
-    newtootsnd = stream.FileStream(file="sounds/" + folder + "/new_toot.wav")
+    newtootsnd = stream.FileStream(file=f"sounds/{folder}/new_toot.wav")
 except BassError:
     newtootsnd = None
 try:
-    dmsnd = stream.FileStream(file="sounds/" + folder + "/new_dm.wav")
+    dmsnd = stream.FileStream(file=f"sounds/{folder}/new_dm.wav")
 except BassError:
     dmsnd = None
 try:
-    mentionsnd = stream.FileStream(file="sounds/" + folder + "/new_mention.wav")
+    mentionsnd = stream.FileStream(file=f"sounds/{folder}/new_mention.wav")
 except BassError:
     mentionsnd = None
 
-# --- NEW: Custom Stream Listener ---
+# --- Custom Stream Listener ---
 class CustomStreamListener(StreamListener):
     def __init__(self, frame):
         super().__init__()
-        # Store a reference to the main frame to call its methods
         self.frame = frame
 
     def on_update(self, status):
         wx.CallAfter(self.frame.add_new_post, status)
+        # Sounds: DM, mention, or generic new toot
         visibility = status.get("visibility")
         mentions = status.get("mentions", [])
         is_dm = visibility == "direct"
-        is_mention = any(user['id'] == self.frame.me['id'] for user in mentions)
-
+        is_mention = any(u.get('id') == getattr(self.frame, 'me', {}).get('id') for u in mentions)
         if is_dm and dmsnd:
             dmsnd.play()
         elif is_mention and mentionsnd:
@@ -71,15 +69,26 @@ class CustomStreamListener(StreamListener):
     def on_delete(self, status_id):
         wx.CallAfter(self.frame.handle_post_deletion, status_id)
 
+    def on_notification(self, notification):
+        wx.CallAfter(self.frame.add_notification, notification)
+
+    def on_status_update(self, status):
+        # Fired when a status is edited
+        wx.CallAfter(self.frame.handle_status_update, status)
+
+
 class ThriveFrame(wx.Frame):
-    def __init__(self, *args, mastodon=None, **kwargs):
+    def __init__(self, *args, **kwargs):
+        mastodon = kwargs.pop("mastodon", None)  # don't pass custom kw to wx.Frame
         super().__init__(*args, **kwargs, size=(800, 600))
+
         self.mastodon = mastodon
-        self.me = self.mastodon.me()
-        self.status_map = []
+        self.me = self.mastodon.me() if self.mastodon else None
+        self.status_map = []  # parallel to listbox entries
         self.privacy_options = ["Public", "Unlisted", "Followers-only", "Direct"]
         self.privacy_values = ["public", "unlisted", "private", "direct"]
 
+        # --- UI ---
         self.panel = wx.Panel(self)
 
         menubar = wx.MenuBar()
@@ -119,7 +128,7 @@ class ThriveFrame(wx.Frame):
             "home": self.timeline_tree.AppendItem(self.root, "Home"),
             "sent": self.timeline_tree.AppendItem(self.root, "Sent"),
             "notifications": self.timeline_tree.AppendItem(self.root, "Notifications"),
-            "mentions": self.timeline_tree.AppendItem(self.root, "Mentions")
+            "mentions": self.timeline_tree.AppendItem(self.root, "Mentions"),
         }
         self.timeline_tree.Bind(wx.EVT_TREE_SEL_CHANGED, self.on_timeline_selected)
 
@@ -144,13 +153,91 @@ class ThriveFrame(wx.Frame):
         self.panel.SetSizer(vbox)
         self.Bind(wx.EVT_CHAR_HOOK, self.on_key_press)
 
+        # Default view + start stream
         self.timeline_tree.SelectItem(self.timeline_nodes["home"])
         self.start_streaming()
 
+    # --- Settings + Sounds ---
+    def conf(self):
+        """Return EasySettings for thrive.ini"""
+        return EasySettings("thrive.ini")
+
+    def load_sounds(self):
+        """Reload all sound files based on current settings."""
+        global tootsnd, replysnd, boostsnd, favsnd, unfavsnd, newtootsnd, dmsnd, mentionsnd
+        try:
+            soundpack = self.conf().get("soundpack", "default")
+            folder = "Mastodon-" + soundpack
+        except Exception:
+            folder = "Mastodon-default"
+
+        def _safe_load(path):
+            try:
+                return stream.FileStream(file=path)
+            except BassError:
+                return None
+
+        tootsnd = _safe_load(f"sounds/{folder}/send_toot.wav")
+        replysnd = _safe_load(f"sounds/{folder}/send_reply.wav")
+        boostsnd = _safe_load(f"sounds/{folder}/send_boost.wav")
+        favsnd = _safe_load(f"sounds/{folder}/favorite.wav")
+        unfavsnd = _safe_load(f"sounds/{folder}/unfavorite.wav")
+        newtootsnd = _safe_load(f"sounds/{folder}/new_toot.wav")
+        dmsnd = _safe_load(f"sounds/{folder}/new_dm.wav")
+        mentionsnd = _safe_load(f"sounds/{folder}/new_mention.wav")
+        return True
+
+    def open_settings(self, event):
+        dlg = SettingsDialog(self, on_save_callback=self.load_sounds)
+        dlg.ShowModal()
+        dlg.Destroy()
+
+    # --- Streaming ---
+    def start_streaming(self):
+        if not self.mastodon:
+            return
+        listener = CustomStreamListener(self)
+        threading.Thread(target=self.mastodon.stream_user, args=(listener,), daemon=True).start()
+
+    def add_new_post(self, status):
+        # Normalize timestamp
+        if isinstance(status.get("created_at"), str):
+            status["created_at"] = datetime.fromisoformat(status["created_at"].replace("Z", "+00:00"))
+        display = self.format_status_for_display(status)
+        if display:
+            self.status_map.insert(0, status)
+            self.posts_list.Insert(display, 0)
+
+    def handle_post_deletion(self, status_id):
+        for i, s in enumerate(self.status_map):
+            if s.get("id") == status_id:
+                self.status_map.pop(i)
+                self.posts_list.Delete(i)
+                break
+
+    def handle_status_update(self, status):
+        for i, s in enumerate(self.status_map):
+            if s.get("id") == status.get("id"):
+                # Normalize timestamp
+                if isinstance(status.get("created_at"), str):
+                    status["created_at"] = datetime.fromisoformat(status["created_at"].replace("Z", "+00:00"))
+                self.status_map[i] = status
+                display = self.format_status_for_display(status)
+                if display:
+                    self.posts_list.SetString(i, display)
+                break
+
+    def add_notification(self, notification):
+        display = self.format_notification_for_display(notification)
+        if display and self.timeline_tree.GetSelection() == self.timeline_nodes["notifications"]:
+            self.status_map.insert(0, notification)
+            self.posts_list.Insert(display, 0)
+
+    # --- Timeline loading ---
     def on_timeline_selected(self, event):
         item = event.GetItem()
         for key, node in self.timeline_nodes.items():
-            if node == item:
+            if item == node:
                 self.load_timeline(key)
                 break
 
@@ -164,50 +251,130 @@ class ThriveFrame(wx.Frame):
                     statuses = self.mastodon.timeline_home(limit=40)
                 elif timeline == "sent":
                     statuses = self.mastodon.account_statuses(self.me["id"], limit=40)
+                    statuses = [s for s in statuses if not s.get("reblog")]  # only originals
                 elif timeline == "notifications":
                     notifications = self.mastodon.notifications(limit=40)
-                    statuses = []
-                    for n in notifications:
-                        if "status" in n and n["status"]:
-                            n["status"]["_notify_type"] = n["type"]
-                            statuses.append(n["status"])
+                    statuses = notifications  # store raw notifications
                 elif timeline == "mentions":
-                    statuses = self.mastodon.notifications(types=["mention"], limit=40)
-                    statuses = [n["status"] for n in statuses if "status" in n and n["status"]]
+                    notifs = self.mastodon.notifications(types=["mention"], limit=40)
+                    statuses = [n["status"] for n in notifs if n.get("status")]
                 else:
                     statuses = []
 
+                # Normalize / sort
                 for s in statuses:
-                    if isinstance(s["created_at"], str):
+                    if isinstance(s.get("created_at"), str):
                         s["created_at"] = datetime.fromisoformat(s["created_at"].replace("Z", "+00:00"))
-                statuses.sort(key=lambda s: s["created_at"], reverse=True)
+                statuses.sort(key=lambda s: s.get("created_at", datetime.min), reverse=True)
 
-                for status in statuses:
-                    display = self.format_status_for_display(status)
-                    wx.CallAfter(self.status_map.append, status)
+                for s in statuses:
+                    if timeline == "notifications":
+                        display = self.format_notification_for_display(s)
+                    else:
+                        display = self.format_status_for_display(s)
+                    wx.CallAfter(self.status_map.append, s)
                     wx.CallAfter(self.posts_list.Append, display)
-
             except Exception as e:
                 wx.CallAfter(self.posts_list.Append, f"Error loading {timeline}: {e}")
 
         threading.Thread(target=fetch, daemon=True).start()
 
-    def conf(self):
-        return EasySettings("thrive.ini")
+    # --- Formatting helpers ---
+    def format_notification_for_display(self, notification):
+        ntype = notification.get("type")
+        account = notification.get("account", {})
+        user = account.get("display_name") or account.get("username", "Unknown")
 
-    def load_sounds(self):
-        global tootsnd
+        if ntype == "favourite":
+            status = notification.get("status")
+            if status:
+                if favsnd:
+                    favsnd.play()
+                return f"{user} favourited your post: {strip_html(status['content']).strip()}"
+            return f"{user} favourited one of your posts"
+        elif ntype == "reblog":
+            status = notification.get("status")
+            if status:
+                if boostsnd:
+                    boostsnd.play()
+                return f"{user} boosted your post: {strip_html(status['content']).strip()}"
+            return f"{user} boosted one of your posts"
+        elif ntype == "mention":
+            status = notification.get("status")
+            if status:
+                if mentionsnd:
+                    mentionsnd.play()
+                return f"{user} mentioned you: {strip_html(status['content']).strip()}"
+            return f"{user} mentioned you"
+        elif ntype == "poll":
+            status = notification.get("status")
+            if status and status.get("poll") and status["poll"].get("expired"):
+                if newtootsnd:
+                    newtootsnd.play()
+                return f"Poll ended in {user}'s post: {strip_html(status['content']).strip()}"
+            return f"Poll update from {user}"
+        elif ntype == "update":
+            status = notification.get("status")
+            if status:
+                if newtootsnd:
+                    newtootsnd.play()
+                return f"{user}'s post you interacted with was edited: {strip_html(status['content']).strip()}"
+            return f"{user} edited a post"
+        else:
+            return f"{user}: {ntype} (unhandled)"
+
+    def format_status_for_display(self, status):
+        # Handle boosts vs originals, spoiler/CW, and app source
+        if status.get("reblog"):
+            boost = status["reblog"]
+            user = status["account"].get("display_name") or status["account"].get("username")
+            original_user = boost["account"].get("display_name") or boost["account"].get("username")
+            handle = boost["account"].get("acct", "")
+            content = strip_html(boost.get("content", "")).strip()
+            boost_app = boost.get("application")
+            boost_source = boost_app.get("name") if isinstance(boost_app, dict) else "Unknown"
+            if boost.get("spoiler_text"):
+                display = f"{user}: Content warning: {boost['spoiler_text']}. Press enter on this post to see the text."
+            else:
+                display = f"{user}: Boosting {original_user} ({handle}): {content}"
+            display += f" — {get_time_ago(boost.get('created_at'))}, {boost_source}"
+            return display
+        else:
+            user = status["account"].get("display_name") or status["account"].get("username")
+            content = strip_html(status.get("content", "")).strip()
+            app_info = status.get("application")
+            source = app_info.get("name") if isinstance(app_info, dict) else "Unknown"
+            if status.get("spoiler_text"):
+                display = f"{user}: Content warning: {status['spoiler_text']}. Press enter on this post to see the text."
+            else:
+                display = f"{user}: {content}"
+            display += f" — {get_time_ago(status.get('created_at'))}, {source}"
+            return display
+
+    # --- Misc UI actions ---
+    def on_toggle_cw(self, event):
+        show = self.cw_toggle.IsChecked()
+        self.cw_input.Show(show)
+        self.cw_label.Show(show)
+        self.panel.Layout()
+
+    def on_post(self, event):
+        status_text = self.toot_input.GetValue().strip()
+        spoiler = self.cw_input.GetValue().strip() if self.cw_toggle.IsChecked() else None
+        visibility = self.privacy_values[self.privacy_choice.GetSelection()]
+        if not status_text:
+            wx.MessageBox("Cannot post empty status.", "Error")
+            return
         try:
-            soundpack = self.conf.get("soundpack", "default")
-            folder = "mastodon-" + soundpack
-            tootsnd = stream.FileStream(file="sounds/" + folder + "/send_toot.wav")
-        except BassError:
-            tootsnd = None
-
-    def open_settings(self, event):
-        dlg = SettingsDialog(self, on_save_callback=self.load_sounds)
-        dlg.ShowModal()
-        dlg.Destroy()
+            self.mastodon.status_post(status_text, spoiler_text=spoiler, visibility=visibility)
+            if tootsnd:
+                tootsnd.play()
+            self.toot_input.SetValue("")
+            self.cw_input.SetValue("")
+            self.cw_toggle.SetValue(False)
+            self.on_toggle_cw(None)
+        except Exception as e:
+            wx.MessageBox(f"Error: {e}", "Post Error")
 
     def on_key_press(self, event):
         mods = event.HasAnyModifiers()
@@ -224,146 +391,61 @@ class ThriveFrame(wx.Frame):
         selection = self.posts_list.GetSelection()
         if selection == wx.NOT_FOUND:
             return
-
         status = self.status_map[selection]
-
-        if status['account']['id'] != self.me['id']:
+        if status.get('account', {}).get('id') != (self.me or {}).get('id'):
             wx.MessageBox("Stop trying to take down other people's posts. I know you probably want to, but it just won't work.", "Error", wx.OK | wx.ICON_ERROR)
             return
-
-        is_reblog = status.get("reblog") is not None
-
-        if is_reblog:
+        if status.get("reblog"):
             confirm = wx.MessageBox("Are you sure you want to unboost this post?", "Confirm Unboost", wx.YES_NO | wx.ICON_QUESTION)
             if confirm == wx.YES:
                 try:
-                    # After unboosting, the stream will send a 'delete' event for the boost,
-                    # so we don't need to manually update the list here.
                     self.mastodon.status_unreblog(status['id'])
                 except Exception as e:
                     wx.MessageBox(f"Error unboosting: {e}", "Error", wx.OK | wx.ICON_ERROR)
-        else: # Original post
+        else:
             confirm = wx.MessageBox("Are you sure you want to take down this post? It will be removed from Mastodon. This action cannot be undone.", "Confirm Deletion", wx.YES_NO | wx.ICON_WARNING)
             if confirm == wx.YES:
                 try:
-                    # The stream will send a 'delete' event, removing it from the list.
                     self.mastodon.status_delete(status['id'])
                 except Exception as e:
                     wx.MessageBox(f"Error deleting post: {e}", "Error", wx.OK | wx.ICON_ERROR)
 
-    def on_toggle_cw(self, event):
-        show = self.cw_toggle.IsChecked()
-        self.cw_input.Show(show)
-        self.cw_label.Show(show)
-        self.panel.Layout()
-
-    def on_post(self, event):
-        status = self.toot_input.GetValue().strip()
-        spoiler = self.cw_input.GetValue().strip() if self.cw_toggle.IsChecked() else None
-        selected_privacy_index = self.privacy_choice.GetSelection()
-        visibility = self.privacy_values[selected_privacy_index]
-        if not status:
-            wx.MessageBox("Cannot post empty status.", "Error")
+    def show_post_details(self):
+        selection = self.posts_list.GetSelection()
+        if selection == wx.NOT_FOUND:
             return
-        try:
-            # The stream will pick up our own new post, so we don't need to manually refresh.
-            self.mastodon.status_post(status, spoiler_text=spoiler, visibility=visibility)
-            if tootsnd:
-                tootsnd.play()
-            self.toot_input.SetValue("")
-            self.cw_input.SetValue("")
-            self.cw_toggle.SetValue(False)
-            self.on_toggle_cw(None)
-            # self.update_posts() # No longer needed
-        except Exception as e:
-            wx.MessageBox(f"Error: {e}", "Post Error")
 
-    # --- REFACTORED: This method is now only for the initial load ---
+        # Determine which timeline we're in
+        current_item = self.timeline_tree.GetSelection()
+        in_notifications = current_item == self.timeline_nodes.get("notifications")
+
+        raw = self.status_map[selection]
+        if in_notifications:
+            # Notifications can wrap a status in notification['status']
+            status = raw.get("status") if isinstance(raw, dict) else None
+            if not status:
+                wx.MessageBox("This notification has no associated post to open.", "No Post", wx.OK | wx.ICON_INFORMATION)
+                return
+        else:
+            # Home / Sent / Mentions contain statuses directly
+            status = raw
+
+        dlg = PostDetailsDialog(self, self.mastodon, status, self.me)
+        dlg.ShowModal()
+        dlg.Destroy()
+
     def initial_load_posts(self):
         def fetch_and_update():
-            # This logic remains largely the same, but it populates the list once.
             try:
                 statuses = self.mastodon.timeline_home(limit=40)
                 for s in statuses:
-                    if isinstance(s["created_at"], str):
+                    if isinstance(s.get("created_at"), str):
                         s["created_at"] = datetime.fromisoformat(s["created_at"].replace("Z", "+00:00"))
-                statuses.sort(key=lambda s: s["created_at"], reverse=True)
-
-                # Use CallAfter to ensure thread-safety, even on initial load
+                statuses.sort(key=lambda s: s.get("created_at"), reverse=True)
                 for status in statuses:
                     display = self.format_status_for_display(status)
                     wx.CallAfter(self.status_map.append, status)
                     wx.CallAfter(self.posts_list.Append, display)
-
             except Exception as e:
                 wx.CallAfter(self.posts_list.Append, f"Error loading posts: {e}")
-
         threading.Thread(target=fetch_and_update, daemon=True).start()
-
-    # --- NEW: Method to start the streaming thread ---
-    def start_streaming(self):
-        listener = CustomStreamListener(self)
-        # run stream_user in a daemon thread so it doesn't block app exit
-        threading.Thread(target=self.mastodon.stream_user, args=(listener,), daemon=True).start()
-
-    # --- NEW: Callback for the stream listener to add a new post ---
-    def add_new_post(self, status):
-        """Inserts a new post at the top of the list."""
-        if isinstance(status["created_at"], str):
-            status["created_at"] = datetime.fromisoformat(status["created_at"].replace("Z", "+00:00"))
-        display = self.format_status_for_display(status)
-        self.status_map.insert(0, status)
-        self.posts_list.Insert(display, 0)
-
-    # --- NEW: Callback for the stream listener to handle a deletion ---
-    def handle_post_deletion(self, status_id):
-        """Finds and removes a deleted post from the list."""
-        # We need to find the index of the status to remove it
-        index_to_delete = -1
-        for i, status in enumerate(self.status_map):
-            # A 'delete' event can be for an original post or a boost.
-            # The ID we get is for the item that was deleted from the timeline.
-            if status['id'] == status_id:
-                index_to_delete = i
-                break
-
-        if index_to_delete != -1:
-            del self.status_map[index_to_delete]
-            self.posts_list.Delete(index_to_delete)
-
-    # --- NEW: Helper method to format a status consistently ---
-    def format_status_for_display(self, status):
-        """Generates the display string for a given status dictionary."""
-        display = ""
-        if status.get("reblog"):
-            boost = status["reblog"]
-            user = status["account"]["display_name"] or status["account"]["username"]
-            original_user = boost["account"]["display_name"] or boost["account"]["username"]
-            handle = boost["account"]["acct"]
-            content = strip_html(boost["content"]).strip()
-            boost_app = boost.get("application")
-            boost_source = boost_app["name"] if boost_app and "name" in boost_app else "Unknown"
-            if boost["spoiler_text"]:
-                display = f"{user}: Content warning: {boost['spoiler_text']}. Press enter on this post to see the text."
-            else:
-                display = f"{user}: Boosting {original_user} ({handle}): {content}"
-            display += f" — {get_time_ago(boost['created_at'])}, {boost_source}"
-        else:
-            user = status["account"]["display_name"] or status["account"]["username"]
-            content = strip_html(status["content"]).strip()
-            app_info = status.get("application")
-            source = app_info["name"] if app_info and "name" in app_info else "Unknown"
-            if status["spoiler_text"]:
-                display = f"{user}: Content warning: {status['spoiler_text']}. Press enter on this post to see the text."
-            else:
-                display = f"{user}: {content}"
-            display += f" — {get_time_ago(status['created_at'])}, {source}"
-        return display
-
-    def show_post_details(self, event=None):
-        selection = self.posts_list.GetSelection()
-        if 0 <= selection < len(self.status_map):
-            status = self.status_map[selection]
-            dlg = PostDetailsDialog(self, self.mastodon, status, self.me)
-            dlg.ShowModal()
-            dlg.Destroy()
