@@ -54,17 +54,6 @@ class CustomStreamListener(StreamListener):
 
     def on_update(self, status):
         wx.CallAfter(self.frame.add_new_post, status)
-        # Sounds: DM, mention, or generic new toot
-        visibility = status.get("visibility")
-        mentions = status.get("mentions", [])
-        is_dm = visibility == "direct"
-        is_mention = any(u.get('id') == getattr(self.frame, 'me', {}).get('id') for u in mentions)
-        if is_dm and dmsnd:
-            dmsnd.play()
-        elif is_mention and mentionsnd:
-            mentionsnd.play()
-        elif newtootsnd:
-            newtootsnd.play()
 
     def on_delete(self, status_id):
         wx.CallAfter(self.frame.handle_post_deletion, status_id)
@@ -73,24 +62,22 @@ class CustomStreamListener(StreamListener):
         wx.CallAfter(self.frame.add_notification, notification)
 
     def on_status_update(self, status):
-        # Fired when a status is edited
         wx.CallAfter(self.frame.handle_status_update, status)
 
 
 class ThriveFrame(wx.Frame):
     def __init__(self, *args, **kwargs):
-        mastodon = kwargs.pop("mastodon", None)  # don't pass custom kw to wx.Frame
+        mastodon = kwargs.pop("mastodon", None)
         super().__init__(*args, **kwargs, size=(800, 600))
 
         self.mastodon = mastodon
         self.me = self.mastodon.me() if self.mastodon else None
-        self.status_map = []  # parallel to listbox entries
+        self.timelines_data = {"home": [], "sent": [], "notifications": [], "mentions": []}
         self.privacy_options = ["Public", "Unlisted", "Followers-only", "Direct"]
         self.privacy_values = ["public", "unlisted", "private", "direct"]
 
-        # --- UI ---
+        # --- UI setup ---
         self.panel = wx.Panel(self)
-
         menubar = wx.MenuBar()
         settings_menu = wx.Menu()
         settings_item = settings_menu.Append(wx.ID_ANY, "&Settings...\tAlt-S", "Open Settings")
@@ -98,11 +85,15 @@ class ThriveFrame(wx.Frame):
         menubar.Append(settings_menu, "&Settings")
         self.SetMenuBar(menubar)
 
-        vbox = wx.BoxSizer(wx.VERTICAL)
+        # Add Refresh menu
+        view_menu = wx.Menu()
+        refresh_item = view_menu.Append(wx.ID_REFRESH, "&Refresh	F5", "Reload current timeline")
+        self.Bind(wx.EVT_MENU, self.on_refresh, refresh_item)
+        menubar.Append(view_menu, "&View")
 
+        vbox = wx.BoxSizer(wx.VERTICAL)
         self.toot_label = wx.StaticText(self.panel, label="&Post:")
         self.toot_input = wx.TextCtrl(self.panel, style=wx.TE_MULTILINE, size=(780, 100))
-
         self.cw_label = wx.StaticText(self.panel, label="Content w&arning title:")
         self.cw_input = wx.TextCtrl(self.panel, size=(780, 30))
         self.cw_toggle = wx.CheckBox(self.panel, label="Add Content &Warning")
@@ -116,12 +107,10 @@ class ThriveFrame(wx.Frame):
 
         self.post_button = wx.Button(self.panel, label="Po&st")
         self.post_button.Bind(wx.EVT_BUTTON, self.on_post)
-
         self.exit_button = wx.Button(self.panel, label="E&xit")
         self.exit_button.Bind(wx.EVT_BUTTON, lambda e: self.Close())
 
         self.posts_label = wx.StaticText(self.panel, label="Posts &List:")
-
         self.timeline_tree = wx.TreeCtrl(self.panel, style=wx.TR_HAS_BUTTONS | wx.TR_HIDE_ROOT)
         self.root = self.timeline_tree.AddRoot("Timelines")
         self.timeline_nodes = {
@@ -131,7 +120,6 @@ class ThriveFrame(wx.Frame):
             "mentions": self.timeline_tree.AppendItem(self.root, "Mentions"),
         }
         self.timeline_tree.Bind(wx.EVT_TREE_SEL_CHANGED, self.on_timeline_selected)
-
         self.posts_list = wx.ListBox(self.panel, style=wx.LB_SINGLE)
 
         hbox = wx.BoxSizer(wx.HORIZONTAL)
@@ -152,18 +140,257 @@ class ThriveFrame(wx.Frame):
 
         self.panel.SetSizer(vbox)
         self.Bind(wx.EVT_CHAR_HOOK, self.on_key_press)
-
-        # Default view + start stream
         self.timeline_tree.SelectItem(self.timeline_nodes["home"])
+        # Load initial Home timeline so posts are visible right away
+        self.load_timeline("home")
+
+        # Preload all other timelines in background so switching is instant
+        for key in ["sent", "notifications", "mentions"]:
+            threading.Thread(target=lambda k=key: self.load_timeline(k), daemon=True).start()
         self.start_streaming()
 
-    # --- Settings + Sounds ---
+    # --- Settings ---
+    def open_settings(self, event):
+        dlg = SettingsDialog(self, on_save_callback=self.load_sounds)
+        dlg.ShowModal()
+        dlg.Destroy()
+
+    # --- UI Handlers ---
+    def on_toggle_cw(self, event):
+        show = self.cw_toggle.IsChecked()
+        self.cw_input.Show(show)
+        self.cw_label.Show(show)
+        self.panel.Layout()
+
+    def on_post(self, event):
+        status_text = self.toot_input.GetValue().strip()
+        spoiler = self.cw_input.GetValue().strip() if self.cw_toggle.IsChecked() else None
+        visibility = self.privacy_values[self.privacy_choice.GetSelection()]
+        if not status_text:
+            wx.MessageBox("Cannot post empty status.", "Error")
+            return
+        try:
+            self.mastodon.status_post(status_text, spoiler_text=spoiler, visibility=visibility)
+            if tootsnd:
+                tootsnd.play()
+            self.toot_input.SetValue("")
+            self.cw_input.SetValue("")
+            self.cw_toggle.SetValue(False)
+            self.on_toggle_cw(None)
+        except Exception as e:
+            wx.MessageBox(f"Error: {e}", "Post Error")
+
+    def on_key_press(self, event):
+        mods = event.HasAnyModifiers()
+        if event.GetKeyCode() == wx.WXK_RETURN and self.FindFocus() == self.posts_list:
+            self.show_post_details()
+        elif event.GetKeyCode() == wx.WXK_DELETE and self.FindFocus() == self.posts_list:
+            self.delete_selected_post()
+        elif event.GetKeyCode() == wx.WXK_RETURN and self.FindFocus() == self.toot_input and mods:
+            self.on_post(event)
+        else:
+            event.Skip()
+
+    def delete_selected_post(self):
+        selection = self.posts_list.GetSelection()
+        if selection == wx.NOT_FOUND:
+            return
+        status = self.timelines_data["home"][selection] if selection < len(self.timelines_data["home"]) else None
+        if not status or status.get('account', {}).get('id') != (self.me or {}).get('id'):
+            wx.MessageBox("Stop trying to take down other people's posts.", "Error", wx.OK | wx.ICON_ERROR)
+            return
+        if status.get("reblog"):
+            confirm = wx.MessageBox("Are you sure you want to unboost this post?", "Confirm Unboost", wx.YES_NO | wx.ICON_QUESTION)
+            if confirm == wx.YES:
+                try:
+                    self.mastodon.status_unreblog(status['id'])
+                except Exception as e:
+                    wx.MessageBox(f"Error unboosting: {e}", "Error", wx.OK | wx.ICON_ERROR)
+        else:
+            confirm = wx.MessageBox("Are you sure you want to take down this post? It will be removed from Mastodon.", "Confirm Deletion", wx.YES_NO | wx.ICON_WARNING)
+            if confirm == wx.YES:
+                try:
+                    self.mastodon.status_delete(status['id'])
+                except Exception as e:
+                    wx.MessageBox(f"Error deleting: {e}", "Error", wx.OK | wx.ICON_ERROR)
+
+    # --- Streaming ---
+    def start_streaming(self):
+        if not self.mastodon:
+            return
+        listener = CustomStreamListener(self)
+        threading.Thread(target=self.mastodon.stream_user, args=(listener,), daemon=True).start()
+
+    def add_new_post(self, status):
+        display = self.format_status_for_display(status)
+        if not display:
+            return
+        self.timelines_data["home"].insert(0, status)
+        if self.timeline_tree.GetSelection() == self.timeline_nodes["home"]:
+            self.posts_list.Insert(display, 0)
+
+    def add_notification(self, notification):
+        display = self.format_notification_for_display(notification)
+        if not display:
+            return
+        self.timelines_data["notifications"].insert(0, notification)
+        if self.timeline_tree.GetSelection() == self.timeline_nodes["notifications"]:
+            self.posts_list.Insert(display, 0)
+
+    def handle_status_update(self, status):
+        # Update in home, sent, mentions timelines
+        for timeline in ["home", "sent", "mentions"]:
+            for i, s in enumerate(self.timelines_data[timeline]):
+                if s.get("id") == status.get("id"):
+                    self.timelines_data[timeline][i] = status
+                    if self.timeline_tree.GetSelection() == self.timeline_nodes[timeline]:
+                        display = self.format_status_for_display(status)
+                        self.posts_list.SetString(i, display)
+                    break
+
+    def handle_post_deletion(self, status_id):
+        for timeline in ["home", "sent", "mentions"]:
+            for i, s in enumerate(self.timelines_data[timeline]):
+                if s.get("id") == status_id:
+                    self.timelines_data[timeline].pop(i)
+                    if self.timeline_tree.GetSelection() == self.timeline_nodes[timeline]:
+                        self.posts_list.Delete(i)
+                    break
+
+    # --- Timeline loading ---
+    def load_timeline(self, timeline):
+        self.posts_list.Clear()
+        if timeline == "home":
+            statuses = self.mastodon.timeline_home(limit=40)
+            self.timelines_data["home"] = statuses
+            for s in statuses:
+                display = self.format_status_for_display(s)
+                if display:
+                    self.posts_list.Append(display)
+        elif timeline == "sent":
+            statuses = self.mastodon.account_statuses(self.me["id"], limit=40)
+            statuses = [s for s in statuses if not s.get("reblog")]
+            self.timelines_data["sent"] = statuses
+            for s in statuses:
+                display = self.format_status_for_display(s)
+                if display:
+                    self.posts_list.Append(display)
+        elif timeline == "notifications":
+            notifs = self.mastodon.notifications(limit=40)
+            self.timelines_data["notifications"] = notifs
+            for n in notifs:
+                display = self.format_notification_for_display(n)
+                if display:
+                    self.posts_list.Append(display)
+        elif timeline == "mentions":
+            notifs = self.mastodon.notifications(types=["mention"], limit=40)
+            statuses = [n["status"] for n in notifs if n.get("status")]
+            self.timelines_data["mentions"] = statuses
+            for s in statuses:
+                display = self.format_status_for_display(s)
+                if display:
+                    self.posts_list.Append(display)
+
+    def on_timeline_selected(self, event):
+        for key, node in self.timeline_nodes.items():
+            if event.GetItem() == node:
+                # Just redraw from buffer (already preloaded & updated by stream)
+                self.posts_list.Clear()
+                for s in self.timelines_data[key]:
+                    if key == "notifications":
+                        display = self.format_notification_for_display(s)
+                    else:
+                        display = self.format_status_for_display(s)
+                    if display:
+                        self.posts_list.Append(display)
+                break
+
+    def on_refresh(self, event):
+        current_item = self.timeline_tree.GetSelection()
+        for key, node in self.timeline_nodes.items():
+            if current_item == node:
+                self.load_timeline(key)
+                break
+
+    def on_refresh(self, event):
+        current_item = self.timeline_tree.GetSelection()
+        for key, node in self.timeline_nodes.items():
+            if current_item == node:
+                self.load_timeline(key)
+                break
+
+    def on_toggle_cw(self, event):
+        show = self.cw_toggle.IsChecked()
+        self.cw_input.Show(show)
+        self.cw_label.Show(show)
+        self.panel.Layout()
+
+    def on_post(self, event):
+        if not self.mastodon:
+            wx.MessageBox("Not connected to a server.", "Error")
+            return
+        status_text = self.toot_input.GetValue().strip()
+        spoiler = self.cw_input.GetValue().strip() if self.cw_toggle.IsChecked() else None
+        visibility = self.privacy_values[self.privacy_choice.GetSelection()]
+        if not status_text:
+            wx.MessageBox("Cannot post empty status.", "Error")
+            return
+        try:
+            self.mastodon.status_post(status_text, spoiler_text=spoiler, visibility=visibility)
+            if tootsnd:
+                tootsnd.play()
+            self.toot_input.SetValue("")
+            self.cw_input.SetValue("")
+            self.cw_toggle.SetValue(False)
+            self.on_toggle_cw(None)
+        except Exception as e:
+            wx.MessageBox(f"Error: {e}", "Post Error")
+
+    def on_key_press(self, event):
+        mods = event.HasAnyModifiers()
+        if event.GetKeyCode() == wx.WXK_RETURN and self.FindFocus() == self.posts_list:
+            self.show_post_details()
+        elif event.GetKeyCode() == wx.WXK_DELETE and self.FindFocus() == self.posts_list:
+            self.delete_selected_post()
+        elif event.GetKeyCode() == wx.WXK_RETURN and self.FindFocus() == self.toot_input and mods:
+            self.on_post(event)
+        else:
+            event.Skip()
+
+    def delete_selected_post(self):
+        if not self.mastodon:
+            return
+        selection = self.posts_list.GetSelection()
+        if selection == wx.NOT_FOUND:
+            return
+        current_item = self.timeline_tree.GetSelection()
+        key = next((k for k, v in self.timeline_nodes.items() if v == current_item), None)
+        if not key or key == "notifications":
+            return  # can't delete from notifications list
+        status = self.timelines_data[key][selection]
+        my_id = (self.me or {}).get('id')
+        if status.get('account', {}).get('id') != my_id:
+            wx.MessageBox("Stop trying to take down other people's posts. I know you probably want to, but it just won't work.", "Error", wx.OK | wx.ICON_ERROR)
+            return
+        if status.get("reblog"):
+            confirm = wx.MessageBox("Are you sure you want to unboost this post?", "Confirm Unboost", wx.YES_NO | wx.ICON_QUESTION)
+            if confirm == wx.YES:
+                try:
+                    self.mastodon.status_unreblog(status['id'])
+                except Exception as e:
+                    wx.MessageBox(f"Error unboosting: {e}", "Error", wx.OK | wx.ICON_ERROR)
+        else:
+            confirm = wx.MessageBox("Are you sure you want to take down this post? It will be removed from Mastodon. This action cannot be undone.", "Confirm Deletion", wx.YES_NO | wx.ICON_WARNING)
+            if confirm == wx.YES:
+                try:
+                    self.mastodon.status_delete(status['id'])
+                except Exception as e:
+                    wx.MessageBox(f"Error deleting post: {e}", "Error", wx.OK | wx.ICON_ERROR)
+
     def conf(self):
-        """Return EasySettings for thrive.ini"""
         return EasySettings("thrive.ini")
 
     def load_sounds(self):
-        """Reload all sound files based on current settings."""
         global tootsnd, replysnd, boostsnd, favsnd, unfavsnd, newtootsnd, dmsnd, mentionsnd
         try:
             soundpack = self.conf().get("soundpack", "default")
@@ -187,99 +414,6 @@ class ThriveFrame(wx.Frame):
         mentionsnd = _safe_load(f"sounds/{folder}/new_mention.wav")
         return True
 
-    def open_settings(self, event):
-        dlg = SettingsDialog(self, on_save_callback=self.load_sounds)
-        dlg.ShowModal()
-        dlg.Destroy()
-
-    # --- Streaming ---
-    def start_streaming(self):
-        if not self.mastodon:
-            return
-        listener = CustomStreamListener(self)
-        threading.Thread(target=self.mastodon.stream_user, args=(listener,), daemon=True).start()
-
-    def add_new_post(self, status):
-        # Normalize timestamp
-        if isinstance(status.get("created_at"), str):
-            status["created_at"] = datetime.fromisoformat(status["created_at"].replace("Z", "+00:00"))
-        display = self.format_status_for_display(status)
-        if display:
-            self.status_map.insert(0, status)
-            self.posts_list.Insert(display, 0)
-
-    def handle_post_deletion(self, status_id):
-        for i, s in enumerate(self.status_map):
-            if s.get("id") == status_id:
-                self.status_map.pop(i)
-                self.posts_list.Delete(i)
-                break
-
-    def handle_status_update(self, status):
-        for i, s in enumerate(self.status_map):
-            if s.get("id") == status.get("id"):
-                # Normalize timestamp
-                if isinstance(status.get("created_at"), str):
-                    status["created_at"] = datetime.fromisoformat(status["created_at"].replace("Z", "+00:00"))
-                self.status_map[i] = status
-                display = self.format_status_for_display(status)
-                if display:
-                    self.posts_list.SetString(i, display)
-                break
-
-    def add_notification(self, notification):
-        display = self.format_notification_for_display(notification)
-        if display and self.timeline_tree.GetSelection() == self.timeline_nodes["notifications"]:
-            self.status_map.insert(0, notification)
-            self.posts_list.Insert(display, 0)
-
-    # --- Timeline loading ---
-    def on_timeline_selected(self, event):
-        item = event.GetItem()
-        for key, node in self.timeline_nodes.items():
-            if item == node:
-                self.load_timeline(key)
-                break
-
-    def load_timeline(self, timeline):
-        self.status_map.clear()
-        self.posts_list.Clear()
-
-        def fetch():
-            try:
-                if timeline == "home":
-                    statuses = self.mastodon.timeline_home(limit=40)
-                elif timeline == "sent":
-                    statuses = self.mastodon.account_statuses(self.me["id"], limit=40)
-                    statuses = [s for s in statuses if not s.get("reblog")]  # only originals
-                elif timeline == "notifications":
-                    notifications = self.mastodon.notifications(limit=40)
-                    statuses = notifications  # store raw notifications
-                elif timeline == "mentions":
-                    notifs = self.mastodon.notifications(types=["mention"], limit=40)
-                    statuses = [n["status"] for n in notifs if n.get("status")]
-                else:
-                    statuses = []
-
-                # Normalize / sort
-                for s in statuses:
-                    if isinstance(s.get("created_at"), str):
-                        s["created_at"] = datetime.fromisoformat(s["created_at"].replace("Z", "+00:00"))
-                statuses.sort(key=lambda s: s.get("created_at", datetime.min), reverse=True)
-
-                for s in statuses:
-                    if timeline == "notifications":
-                        display = self.format_notification_for_display(s)
-                    else:
-                        display = self.format_status_for_display(s)
-                    wx.CallAfter(self.status_map.append, s)
-                    wx.CallAfter(self.posts_list.Append, display)
-            except Exception as e:
-                wx.CallAfter(self.posts_list.Append, f"Error loading {timeline}: {e}")
-
-        threading.Thread(target=fetch, daemon=True).start()
-
-    # --- Formatting helpers ---
     def format_notification_for_display(self, notification):
         ntype = notification.get("type")
         account = notification.get("account", {})
@@ -324,26 +458,25 @@ class ThriveFrame(wx.Frame):
             return f"{user}: {ntype} (unhandled)"
 
     def format_status_for_display(self, status):
-        # Handle boosts vs originals, spoiler/CW, and app source
         if status.get("reblog"):
             boost = status["reblog"]
             user = status["account"].get("display_name") or status["account"].get("username")
             original_user = boost["account"].get("display_name") or boost["account"].get("username")
             handle = boost["account"].get("acct", "")
             content = strip_html(boost.get("content", "")).strip()
-            boost_app = boost.get("application")
-            boost_source = boost_app.get("name") if isinstance(boost_app, dict) else "Unknown"
+            app = boost.get("application") or {}
+            source = app.get("name") if isinstance(app, dict) else "Unknown"
             if boost.get("spoiler_text"):
                 display = f"{user}: Content warning: {boost['spoiler_text']}. Press enter on this post to see the text."
             else:
                 display = f"{user}: Boosting {original_user} ({handle}): {content}"
-            display += f" — {get_time_ago(boost.get('created_at'))}, {boost_source}"
+            display += f" — {get_time_ago(boost.get('created_at'))}, {source}"
             return display
         else:
             user = status["account"].get("display_name") or status["account"].get("username")
             content = strip_html(status.get("content", "")).strip()
-            app_info = status.get("application")
-            source = app_info.get("name") if isinstance(app_info, dict) else "Unknown"
+            app = status.get("application") or {}
+            source = app.get("name") if isinstance(app, dict) else "Unknown"
             if status.get("spoiler_text"):
                 display = f"{user}: Content warning: {status['spoiler_text']}. Press enter on this post to see the text."
             else:
@@ -351,101 +484,22 @@ class ThriveFrame(wx.Frame):
             display += f" — {get_time_ago(status.get('created_at'))}, {source}"
             return display
 
-    # --- Misc UI actions ---
-    def on_toggle_cw(self, event):
-        show = self.cw_toggle.IsChecked()
-        self.cw_input.Show(show)
-        self.cw_label.Show(show)
-        self.panel.Layout()
-
-    def on_post(self, event):
-        status_text = self.toot_input.GetValue().strip()
-        spoiler = self.cw_input.GetValue().strip() if self.cw_toggle.IsChecked() else None
-        visibility = self.privacy_values[self.privacy_choice.GetSelection()]
-        if not status_text:
-            wx.MessageBox("Cannot post empty status.", "Error")
-            return
-        try:
-            self.mastodon.status_post(status_text, spoiler_text=spoiler, visibility=visibility)
-            if tootsnd:
-                tootsnd.play()
-            self.toot_input.SetValue("")
-            self.cw_input.SetValue("")
-            self.cw_toggle.SetValue(False)
-            self.on_toggle_cw(None)
-        except Exception as e:
-            wx.MessageBox(f"Error: {e}", "Post Error")
-
-    def on_key_press(self, event):
-        mods = event.HasAnyModifiers()
-        if event.GetKeyCode() == wx.WXK_RETURN and self.FindFocus() == self.posts_list:
-            self.show_post_details()
-        elif event.GetKeyCode() == wx.WXK_DELETE and self.FindFocus() == self.posts_list:
-            self.delete_selected_post()
-        elif event.GetKeyCode() == wx.WXK_RETURN and self.FindFocus() == self.toot_input and mods:
-            self.on_post(event)
-        else:
-            event.Skip()
-
-    def delete_selected_post(self):
-        selection = self.posts_list.GetSelection()
-        if selection == wx.NOT_FOUND:
-            return
-        status = self.status_map[selection]
-        if status.get('account', {}).get('id') != (self.me or {}).get('id'):
-            wx.MessageBox("Stop trying to take down other people's posts. I know you probably want to, but it just won't work.", "Error", wx.OK | wx.ICON_ERROR)
-            return
-        if status.get("reblog"):
-            confirm = wx.MessageBox("Are you sure you want to unboost this post?", "Confirm Unboost", wx.YES_NO | wx.ICON_QUESTION)
-            if confirm == wx.YES:
-                try:
-                    self.mastodon.status_unreblog(status['id'])
-                except Exception as e:
-                    wx.MessageBox(f"Error unboosting: {e}", "Error", wx.OK | wx.ICON_ERROR)
-        else:
-            confirm = wx.MessageBox("Are you sure you want to take down this post? It will be removed from Mastodon. This action cannot be undone.", "Confirm Deletion", wx.YES_NO | wx.ICON_WARNING)
-            if confirm == wx.YES:
-                try:
-                    self.mastodon.status_delete(status['id'])
-                except Exception as e:
-                    wx.MessageBox(f"Error deleting post: {e}", "Error", wx.OK | wx.ICON_ERROR)
-
     def show_post_details(self):
         selection = self.posts_list.GetSelection()
         if selection == wx.NOT_FOUND:
             return
-
-        # Determine which timeline we're in
         current_item = self.timeline_tree.GetSelection()
-        in_notifications = current_item == self.timeline_nodes.get("notifications")
-
-        raw = self.status_map[selection]
-        if in_notifications:
-            # Notifications can wrap a status in notification['status']
+        if current_item == self.timeline_nodes["notifications"]:
+            raw = self.timelines_data["notifications"][selection]
             status = raw.get("status") if isinstance(raw, dict) else None
             if not status:
                 wx.MessageBox("This notification has no associated post to open.", "No Post", wx.OK | wx.ICON_INFORMATION)
                 return
         else:
-            # Home / Sent / Mentions contain statuses directly
-            status = raw
-
+            key = next((k for k,v in self.timeline_nodes.items() if v == current_item), None)
+            if not key:
+                return
+            status = self.timelines_data[key][selection]
         dlg = PostDetailsDialog(self, self.mastodon, status, self.me)
         dlg.ShowModal()
         dlg.Destroy()
-
-    def initial_load_posts(self):
-        def fetch_and_update():
-            try:
-                statuses = self.mastodon.timeline_home(limit=40)
-                for s in statuses:
-                    if isinstance(s.get("created_at"), str):
-                        s["created_at"] = datetime.fromisoformat(s["created_at"].replace("Z", "+00:00"))
-                statuses.sort(key=lambda s: s.get("created_at"), reverse=True)
-                for status in statuses:
-                    display = self.format_status_for_display(status)
-                    wx.CallAfter(self.status_map.append, status)
-                    wx.CallAfter(self.posts_list.Append, display)
-            except Exception as e:
-                wx.CallAfter(self.posts_list.Append, f"Error loading posts: {e}")
-        threading.Thread(target=fetch_and_update, daemon=True).start()
