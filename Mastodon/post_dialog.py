@@ -32,6 +32,7 @@ class PostDetailsDialog(wx.Dialog):
 		for i in content.split(" "):
 			if i.startswith("@") and i!="@"+me: self.reply_users+=i+" "
 		if self.account.acct!=me: self.reply_users="@"+self.account.acct+" "+self.reply_users
+		self.content_label  = wx.StaticText(self, label="Post C&ontent")
 		self.content_box = wx.TextCtrl(self, value=content, style=wx.TE_MULTILINE | wx.TE_READONLY)
 
 		app = self.status.get("application")
@@ -50,11 +51,12 @@ Favorited {favs} times.
 {replies} replies
 Privacy: {privacy}
 Language: {language}"""
+		self.details_label = wx.StaticText(self, label="Post &Details")
 		self.details_box = wx.TextCtrl(self, value=detail_text, style=wx.TE_MULTILINE | wx.TE_READONLY)
 
 		self.reply_button = wx.Button(self, label="&Reply")
-		self.boost_button = wx.Button(self, label="Unboost" if self.status["reblogged"] else "&Boost")
-		self.fav_button = wx.Button(self, label="Unfavourite" if self.status["favourited"] else "&Favourite")
+		self.boost_button = wx.Button(self, label="Un&boost" if self.status["reblogged"] else "&Boost")
+		self.fav_button = wx.Button(self, label="Un&favourite" if self.status["favourited"] else "&Favourite")
 		self.profile_button = wx.Button(self, label=f"View &Profile of {display_name}")
 		self.take_down_button = wx.Button(self, label="&Take down")
 		self.close_button = wx.Button(self, id=wx.ID_CANCEL, label="&Close")
@@ -67,6 +69,7 @@ Language: {language}"""
 
 		sizer = wx.BoxSizer(wx.VERTICAL)
 		sizer.Add(self.content_box, 1, wx.ALL | wx.EXPAND, 5)
+
 		sizer.Add(self.details_box, 0, wx.ALL | wx.EXPAND, 5)
 
 		btns = wx.BoxSizer(wx.HORIZONTAL)
@@ -114,7 +117,7 @@ Language: {language}"""
 		panel = wx.Panel(dialog)
 		vbox = wx.BoxSizer(wx.VERTICAL)
 
-		label = wx.StaticText(panel, label="&Reply message:")
+		label = wx.StaticText(panel, label="&Reply")
 		self.reply_text = wx.TextCtrl(panel, style=wx.TE_MULTILINE, size=(480, 100))
 		self.reply_text.SetValue(self.reply_users.strip() + " " if self.reply_users.strip() else "")
 		self.reply_text.SetInsertionPoint(len(self.reply_text.GetValue()))
@@ -128,8 +131,8 @@ Language: {language}"""
 		except ValueError:
 			self.reply_privacy_choice.SetSelection(0)
 
-		send_button = wx.Button(panel, label="Send Reply")
-		cancel_button = wx.Button(panel, id=wx.ID_CANCEL, label="Cancel")
+		send_button = wx.Button(panel, label="&Post")
+		cancel_button = wx.Button(panel, id=wx.ID_CANCEL, label="&Cancel")
 
 		send_button.Bind(wx.EVT_BUTTON, lambda e: self.send_reply(dialog, self.reply_text.GetValue()))
 
@@ -174,12 +177,12 @@ Language: {language}"""
 		try:
 			if self.status["reblogged"]:
 				self.mastodon.status_unreblog(self.status["id"])
-				self.boost_button.SetLabel("Boost")
+				self.boost_button.SetLabel("&Boost")
 			else:
 				if main_frame.boostsnd:
 					main_frame.boostsnd.play()
 				self.mastodon.status_reblog(self.status["id"])
-				self.boost_button.SetLabel("Unboost")
+				self.boost_button.SetLabel("Un&boost")
 			self.status["reblogged"] = not self.status["reblogged"]
 		except Exception as e:
 			wx.MessageBox(f"Error: {e}", "Boost Error")
@@ -190,12 +193,12 @@ Language: {language}"""
 				if main_frame.unfavsnd:
 					main_frame.unfavsnd.play()
 				self.mastodon.status_unfavourite(self.status["id"])
-				self.fav_button.SetLabel("Favourite")
+				self.fav_button.SetLabel("&Favourite")
 			else:
 				if main_frame.favsnd:
 					main_frame.favsnd.play()
 				self.mastodon.status_favourite(self.status["id"])
-				self.fav_button.SetLabel("Unfavourite")
+				self.fav_button.SetLabel("Un&favourite")
 			self.status["favourited"] = not self.status["favourited"]
 		except Exception as e:
 			wx.MessageBox(f"Error: {e}", "Favourite Error")
