@@ -8,6 +8,82 @@ from settings_dialog import SettingsDialog
 from sound_lib import stream
 from sound_lib.main import BassError
 from easysettings import EasySettings
+import re
+
+# Precompile regex for performance
+_SINGULAR_RE = re.compile(r"\b1 (\w+)s( ago)?\b")
+
+def singularize_time(text):
+	"""Convert strings like '1 hours ago' -> '1 hour ago'.
+	This only changes the unit when the quantity is exactly 1.
+	"""
+	if not text:
+		return text
+	return _SINGULAR_RE.sub(r"1 \1\2", text)
+
+# Backwards-compatible helper name in case other code expects it
+def formatted_time(created_at):
+	"""Return human-friendly time string (backwards-compatible name)."""
+	if not created_at:
+		return ''
+	return singularize_time(get_time_ago(created_at))
+
+# Adapter: provide a ListBox-like API on top of a wx.ListCtrl (SysListView32)
+class SysListViewAdapter(wx.ListCtrl):
+	"""A thin wrapper around wx.ListCtrl that exposes simple ListBox-like methods.
+
+	Columns: Author, Content, Time, Client
+	Methods provided: Append(item), Insert(item, pos), Clear(), Delete(index), SetString(index, item), GetSelection()
+	item may be a string (content) or a 4-element sequence mapping to columns.
+	"""
+	def __init__(self, parent, *args, **kwargs):
+		super().__init__(parent, style=wx.LC_REPORT | wx.LC_SINGLE_SEL)
+		# Columns: Author, Content, Time, Client (reordered)
+		self.InsertColumn(0, "Author", width=160)
+		self.InsertColumn(1, "Content", width=360)
+		self.InsertColumn(2, "Time", width=120)
+		self.InsertColumn(3, "Client", width=120)
+
+	def _normalize_row(self, item):
+		"""Return a 4-element list for columns based on the given item."""
+		if isinstance(item, (list, tuple)):
+			cols = [str(c) if c is not None else "" for c in item]
+			cols += [""] * (4 - len(cols))
+			return cols[:4]
+		# treat plain string as content only
+		return ["", str(item), "", ""]
+
+	def _insert_row(self, idx, cols):
+		# insert a row and populate remaining columns
+		self.InsertItem(idx, cols[0])
+		for c in range(1, 4):
+			self.SetItem(idx, c, cols[c])
+
+	def Append(self, item):
+		cols = self._normalize_row(item)
+		idx = self.GetItemCount()
+		self._insert_row(idx, cols)
+		return idx
+
+	def Insert(self, item, pos=0):
+		cols = self._normalize_row(item)
+		self._insert_row(pos, cols)
+
+	def Clear(self):
+		self.DeleteAllItems()
+
+	def Delete(self, index):
+		self.DeleteItem(index)
+
+	def SetString(self, index, item):
+		cols = self._normalize_row(item)
+		# update all columns
+		for c in range(4):
+			self.SetItem(index, c, cols[c])
+
+	def GetSelection(self):
+		sel = self.GetFirstSelected()
+		return sel if sel != -1 else wx.NOT_FOUND
 
 # --- Sound loading at startup ---
 try:
@@ -92,7 +168,7 @@ class ThriveFrame(wx.Frame):
         menubar.Append(view_menu, "&View")
 
         vbox = wx.BoxSizer(wx.VERTICAL)
-        self.toot_label = wx.StaticText(self.panel, label="&Post:")
+        self.toot_label = wx.StaticText(self.panel, label="&Create New Post")
         self.toot_input = wx.TextCtrl(self.panel, style=wx.TE_MULTILINE, size=(780, 100))
         self.cw_label = wx.StaticText(self.panel, label="Content w&arning title:")
         self.cw_input = wx.TextCtrl(self.panel, size=(780, 30))
@@ -105,12 +181,12 @@ class ThriveFrame(wx.Frame):
         self.privacy_choice = wx.Choice(self.panel, choices=self.privacy_options)
         self.privacy_choice.SetSelection(0)
 
-        self.post_button = wx.Button(self.panel, label="Po&st")
+        self.post_button = wx.Button(self.panel, label="&Post")
         self.post_button.Bind(wx.EVT_BUTTON, self.on_post)
         self.exit_button = wx.Button(self.panel, label="E&xit")
         self.exit_button.Bind(wx.EVT_BUTTON, lambda e: self.Close())
 
-        self.posts_label = wx.StaticText(self.panel, label="Posts &List:")
+        self.posts_label = wx.StaticText(self.panel, label="Timelines &List")
         self.timeline_tree = wx.TreeCtrl(self.panel, style=wx.TR_HAS_BUTTONS | wx.TR_HIDE_ROOT)
         self.root = self.timeline_tree.AddRoot("Timelines")
         self.timeline_nodes = {
@@ -120,7 +196,8 @@ class ThriveFrame(wx.Frame):
             "mentions": self.timeline_tree.AppendItem(self.root, "Mentions"),
         }
         self.timeline_tree.Bind(wx.EVT_TREE_SEL_CHANGED, self.on_timeline_selected)
-        self.posts_list = wx.ListBox(self.panel, style=wx.LB_SINGLE)
+        # Use the SysListViewAdapter (wx.ListCtrl) so screen readers see a table
+        self.posts_list = SysListViewAdapter(self.panel)
 
         hbox = wx.BoxSizer(wx.HORIZONTAL)
         hbox.Add(self.timeline_tree, 0, wx.EXPAND | wx.ALL, 5)
@@ -227,7 +304,8 @@ class ThriveFrame(wx.Frame):
             return
         self.timelines_data["home"].insert(0, status)
         if self.timeline_tree.GetSelection() == self.timeline_nodes["home"]:
-            self.posts_list.Insert(display, 0)
+            row = self.row_from_status(status)
+            self.posts_list.Insert(row, 0)
 
     def add_notification(self, notification):
         display = self.format_notification_for_display(notification)
@@ -235,7 +313,8 @@ class ThriveFrame(wx.Frame):
             return
         self.timelines_data["notifications"].insert(0, notification)
         if self.timeline_tree.GetSelection() == self.timeline_nodes["notifications"]:
-            self.posts_list.Insert(display, 0)
+            row = self.row_from_notification(notification)
+            self.posts_list.Insert(row, 0)
 
     def handle_status_update(self, status):
         # Update in home, sent, mentions timelines
@@ -244,8 +323,8 @@ class ThriveFrame(wx.Frame):
                 if s.get("id") == status.get("id"):
                     self.timelines_data[timeline][i] = status
                     if self.timeline_tree.GetSelection() == self.timeline_nodes[timeline]:
-                        display = self.format_status_for_display(status)
-                        self.posts_list.SetString(i, display)
+                        row = self.row_from_status(status)
+                        self.posts_list.SetString(i, row)
                     break
 
     def handle_post_deletion(self, status_id):
@@ -264,32 +343,32 @@ class ThriveFrame(wx.Frame):
             statuses = self.mastodon.timeline_home(limit=40)
             self.timelines_data["home"] = statuses
             for s in statuses:
-                display = self.format_status_for_display(s)
-                if display:
-                    self.posts_list.Append(display)
+                row = self.row_from_status(s)
+                if row:
+                    self.posts_list.Append(row)
         elif timeline == "sent":
             statuses = self.mastodon.account_statuses(self.me["id"], limit=40)
             statuses = [s for s in statuses if not s.get("reblog")]
             self.timelines_data["sent"] = statuses
             for s in statuses:
-                display = self.format_status_for_display(s)
-                if display:
-                    self.posts_list.Append(display)
+                row = self.row_from_status(s)
+                if row:
+                    self.posts_list.Append(row)
         elif timeline == "notifications":
             notifs = self.mastodon.notifications(limit=40)
             self.timelines_data["notifications"] = notifs
             for n in notifs:
-                display = self.format_notification_for_display(n)
-                if display:
-                    self.posts_list.Append(display)
+                row = self.row_from_notification(n)
+                if row:
+                    self.posts_list.Append(row)
         elif timeline == "mentions":
             notifs = self.mastodon.notifications(types=["mention"], limit=40)
             statuses = [n["status"] for n in notifs if n.get("status")]
             self.timelines_data["mentions"] = statuses
             for s in statuses:
-                display = self.format_status_for_display(s)
-                if display:
-                    self.posts_list.Append(display)
+                row = self.row_from_status(s)
+                if row:
+                    self.posts_list.Append(row)
 
     def on_timeline_selected(self, event):
         for key, node in self.timeline_nodes.items():
@@ -298,11 +377,11 @@ class ThriveFrame(wx.Frame):
                 self.posts_list.Clear()
                 for s in self.timelines_data[key]:
                     if key == "notifications":
-                        display = self.format_notification_for_display(s)
+                        row = self.row_from_notification(s)
                     else:
-                        display = self.format_status_for_display(s)
-                    if display:
-                        self.posts_list.Append(display)
+                        row = self.row_from_status(s)
+                    if row:
+                        self.posts_list.Append(row)
                 break
 
     def on_refresh(self, event):
@@ -470,7 +549,7 @@ class ThriveFrame(wx.Frame):
                 display = f"{user}: Content warning: {boost['spoiler_text']}. Press enter on this post to see the text."
             else:
                 display = f"{user}: Boosting {original_user} ({handle}): {content}"
-            display += f" — {get_time_ago(boost.get('created_at'))}, {source}"
+            display += f" — {singularize_time(get_time_ago(boost.get('created_at')))}, {source}"
             return display
         else:
             user = status["account"].get("display_name") or status["account"].get("username")
@@ -481,8 +560,59 @@ class ThriveFrame(wx.Frame):
                 display = f"{user}: Content warning: {status['spoiler_text']}. Press enter on this post to see the text."
             else:
                 display = f"{user}: {content}"
-            display += f" — {get_time_ago(status.get('created_at'))}, {source}"
+            display += f" — {singularize_time(get_time_ago(status.get('created_at')))}, {source}"
             return display
+
+    # Helpers to construct table rows: [time, client, author, content]
+    def row_from_status(self, status):
+        # Build columns (Author, Content, Time, Client) with boost info in Content
+        if not status:
+            return None
+
+        is_boost = bool(status.get('reblog'))
+        source_obj = status['reblog'] if is_boost else status
+        # Author column should show the account that posted (the booster)
+        author_cell = status['account'].get('display_name') or status['account'].get('username')
+
+        # Content column: for boosts include 'boosting Original (handle): <content>'
+        if is_boost:
+            original = source_obj['account'].get('display_name') or source_obj['account'].get('username')
+            handle = source_obj['account'].get('acct', '')
+            # prefer spoiler text when present on the boosted post
+            if source_obj.get('spoiler_text'):
+                content_body = f"CW: {source_obj['spoiler_text']} (press Enter to view)"
+            else:
+                content_body = strip_html(source_obj.get('content', '')).strip()
+            content_cell = f"boosting {original} ({handle}): {content_body}"
+        else:
+            # prefer spoiler text when present on the normal post
+            if status.get('spoiler_text'):
+                content_cell = f"CW: {status['spoiler_text']} (press Enter to view)"
+            else:
+                content_cell = strip_html(status.get('content', '')).strip()
+
+        time_cell = self.format_time(source_obj.get('created_at')) or ''
+        client_cell = self.get_app_name(source_obj) or ''
+
+        return [author_cell or '', content_cell or '', time_cell, client_cell]
+
+    def row_from_notification(self, notification):
+        ntype = notification.get('type')
+        account = notification.get('account', {})
+        user = account.get('display_name') or account.get('username') or 'Unknown'
+        status = notification.get('status') or {}
+
+        time_cell = self.format_time(status.get('created_at')) if status else ''
+        client_cell = self.get_app_name(status) if status else ''
+        content = strip_html(status.get('content', '')).strip() if status else ''
+
+        if ntype == 'favourite':
+            return [f"{user} favorited", content, time_cell or '', client_cell or '']
+        if ntype == 'reblog':
+            return [f"{user} boosted", content, time_cell or '', client_cell or '']
+        if ntype == 'mention':
+            return [f"{user} mentioned you", content, time_cell or '', client_cell or '']
+        return [f"{user}: {ntype}", '', '', '']
 
     def show_post_details(self):
         selection = self.posts_list.GetSelection()
@@ -503,3 +633,19 @@ class ThriveFrame(wx.Frame):
         dlg = PostDetailsDialog(self, self.mastodon, status, self.me)
         dlg.ShowModal()
         dlg.Destroy()
+
+    def get_app_name(self, status_or_boost):
+        """Return the application/client name for a status-like object."""
+        if not status_or_boost:
+            return 'Unknown'
+        app = status_or_boost.get('application') or {}
+        if isinstance(app, dict):
+            return app.get('name', 'Unknown')
+        # some libraries may return a string
+        return str(app) or 'Unknown'
+
+    def format_time(self, created_at):
+        """Return a human-friendly time string with singular units fixed."""
+        if not created_at:
+            return ''
+        return singularize_time(get_time_ago(created_at))
