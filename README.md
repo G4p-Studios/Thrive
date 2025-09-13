@@ -55,12 +55,11 @@ The pre-compiled Thrive binary runs on Windows 7 and higher.
 
 When you launch Thrive for the first time, you will be greeted with a Mastodon authorisation screen.
 
-1. Enter the URL of the Mastodon instance you have an account on, E.G. https://mastodon.social. You don't need the https://part, just the domain (E.G. mastodon.social) will do.
-2. Tab to the username field and enter your Mastodon username without the @ sign or instance domain. For instance, if your username is user@mastodon.social, you'd just enter user.
-3. Tab to the authenticate button and hit Space or Enter.
-4. Your default web browser will open to your instance's login/authorisation page. If you are not logged into your account, enter your login details and click login. Once logged in, click the authorise button.
-5. Click the copy button to copy the authorisation code shown on screen.
-6. Close the browser, Alt Tab to the enter code dialog, paste in your authorisation code with Control V and hit Enter.
+1. Enter the URL of the Mastodon instance you have an account on, E.G. https://vee.seedy.cc. You don't need the https://part, just the domain (E.G. vee.seedy.cc) will do.
+2. Tab to the authenticate button and hit Space or Enter.
+3. Your default web browser will open to your instance's login/authorisation page. If you are not logged into your account, enter your login details and click login. Once logged in, click the authorise button.
+4. Click the copy button to copy the authorisation code shown on screen.
+5. Close the browser, Alt Tab to the enter code dialog, paste in your authorisation code with Control V and hit Enter.
 
 Your user data is stored inside a file called user.dat inside the Thrive folder. If you ever need to reauthorise, simply delete that file and repeat the above steps.
 
