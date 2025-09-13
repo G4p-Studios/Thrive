@@ -11,7 +11,7 @@ class AuthFrame(wx.Frame):
 		vbox = wx.BoxSizer(wx.VERTICAL)
 
 		self.instance_label = wx.StaticText(self.panel, label="Mastodon Instance URL:")
-		self.instance_input = wx.TextCtrl(self.panel, value="https://mastodon.social")
+		self.instance_input = wx.TextCtrl(self.panel, value="https://vee.seedy.cc")
 
 		self.auth_button = wx.Button(self.panel, label="Authenticate")
 		self.auth_button.Bind(wx.EVT_BUTTON, self.on_authenticate)
