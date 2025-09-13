@@ -107,7 +107,7 @@ Language: {language}"""
 		if confirm == wx.YES:
 			try:
 				self.mastodon.status_delete(self.status['id'])
-				self.Parent.update_posts()
+				self.Parent.handle_post_deletion(self.status['id'])
 				self.Close()
 			except Exception as e:
 				wx.MessageBox(f"Error deleting post: {e}", "Error", wx.OK | wx.ICON_ERROR, self)

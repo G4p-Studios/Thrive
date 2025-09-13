@@ -6,31 +6,25 @@ from main_frame import ThriveFrame
 
 class AuthFrame(wx.Frame):
 	def __init__(self, *args, **kwargs):
-		super().__init__(*args, **kwargs, size=(400, 250))
+		super().__init__(*args, **kwargs, size=(400, 180))
 		self.panel = wx.Panel(self)
 		vbox = wx.BoxSizer(wx.VERTICAL)
 
 		self.instance_label = wx.StaticText(self.panel, label="Mastodon Instance URL:")
 		self.instance_input = wx.TextCtrl(self.panel, value="https://mastodon.social")
 
-		self.username_label = wx.StaticText(self.panel, label="Username:")
-		self.username_input = wx.TextCtrl(self.panel)
-
 		self.auth_button = wx.Button(self.panel, label="Authenticate")
 		self.auth_button.Bind(wx.EVT_BUTTON, self.on_authenticate)
 
 		vbox.Add(self.instance_label, 0, wx.ALL, 5)
 		vbox.Add(self.instance_input, 0, wx.ALL | wx.EXPAND, 5)
-		vbox.Add(self.username_label, 0, wx.ALL, 5)
-		vbox.Add(self.username_input, 0, wx.ALL | wx.EXPAND, 5)
 		vbox.Add(self.auth_button, 0, wx.ALL | wx.CENTER, 5)
 		self.panel.SetSizer(vbox)
 
 	def on_authenticate(self, event):
 		instance_url = self.instance_input.GetValue().strip()
-		username = self.username_input.GetValue().strip()
-		if not instance_url or not username:
-			wx.MessageBox("Please enter both instance URL and username.", "Error")
+		if not instance_url:
+			wx.MessageBox("Please enter the instance URL.", "Error")
 			return
 
 		try:
@@ -50,7 +44,12 @@ class AuthFrame(wx.Frame):
 			webbrowser.open(auth_url)
 
 			code = wx.GetTextFromUser("Enter the authorization code from the browser:", "Enter Code")
+			if not code:
+				return # User cancelled
 			self.mastodon.log_in(code=code, scopes=["read", "write", "follow"])
+
+			me_account = self.mastodon.me()
+			username = me_account['username']
 
 			save_user_data({
 				"client_id": client_id,
