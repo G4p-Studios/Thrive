@@ -10,6 +10,67 @@ from sound_lib.main import BassError
 from easysettings import EasySettings
 import re
 
+# --- Dark Mode for MSW ---
+try:
+    import ctypes
+    from ctypes import wintypes
+
+    class WxMswDarkMode:
+        """
+        Manages dark mode for top-level windows on Microsoft Windows.
+        Uses undocumented APIs for immersive dark mode, so it may break.
+        """
+        _instance = None
+
+        def __new__(cls):
+            if cls._instance is None:
+                cls._instance = super(WxMswDarkMode, cls).__new__(cls)
+                try:
+                    cls.dwmapi = ctypes.WinDLL("dwmapi")
+                    # DWMWA_USE_IMMERSIVE_DARK_MODE is 20 in recent SDKs
+                    cls.DWMWA_USE_IMMERSIVE_DARK_MODE = 20
+                except (AttributeError, OSError):
+                    cls.dwmapi = None
+            return cls._instance
+
+        def enable(self, window: wx.Window, enable: bool = True):
+            """
+            Enable or disable dark mode for a given wx.Window.
+            """
+            if not self.dwmapi:
+                return False
+
+            try:
+                hwnd = window.GetHandle()
+                value = wintypes.BOOL(enable)
+                hr = self.dwmapi.DwmSetWindowAttribute(
+                    hwnd,
+                    self.DWMWA_USE_IMMERSIVE_DARK_MODE,
+                    ctypes.byref(value),
+                    ctypes.sizeof(value)
+                )
+                # If attribute 20 fails, try older attribute 19 as a fallback
+                if hr != 0:
+                    self.DWMWA_USE_IMMERSIVE_DARK_MODE = 19
+                    hr = self.dwmapi.DwmSetWindowAttribute(
+                        hwnd,
+                        self.DWMWA_USE_IMMERSIVE_DARK_MODE,
+                        ctypes.byref(value),
+                        ctypes.sizeof(value)
+                    )
+                return hr == 0
+            except Exception:
+                return False
+
+except (ImportError, ModuleNotFoundError):
+    # Create a dummy class if ctypes is not available (e.g., non-Windows)
+    class WxMswDarkMode:
+        def enable(self, window: wx.Window, enable: bool = True):
+            return False
+
+# --- End of Dark Mode Class ---
+
+
 # Precompile regex for performance
 _SINGULAR_RE = re.compile(r"\b1 (\w+)s( ago)?\b")
 
@@ -154,6 +215,21 @@ class ThriveFrame(wx.Frame):
 
         # --- UI setup ---
         self.panel = wx.Panel(self)
+
+        # --- Enable Dark Mode ---
+        # The hex color #FF282828 is ARGB. wx.Colour needs RGB (40, 40, 40).
+        dark_color = wx.Colour(40, 40, 40)
+        light_text_color = wx.WHITE
+
+        # Enable immersive dark mode for the window title bar
+        dark_mode_manager = WxMswDarkMode()
+        dark_mode_manager.enable(self)
+
+        # Set background and foreground colors for main components
+        self.SetBackgroundColour(dark_color)
+        self.panel.SetBackgroundColour(dark_color)
+        self.panel.SetForegroundColour(light_text_color)
+        
         menubar = wx.MenuBar()
         settings_menu = wx.Menu()
         settings_item = settings_menu.Append(wx.ID_ANY, "&Settings...\tAlt-S", "Open Settings")
@@ -198,6 +274,15 @@ class ThriveFrame(wx.Frame):
         self.timeline_tree.Bind(wx.EVT_TREE_SEL_CHANGED, self.on_timeline_selected)
         # Use the SysListViewAdapter (wx.ListCtrl) so screen readers see a table
         self.posts_list = SysListViewAdapter(self.panel)
+
+        # Apply dark mode colors to widgets
+        for widget in [self.toot_label, self.cw_label, self.cw_toggle, self.privacy_label, self.posts_label]:
+            widget.SetForegroundColour(light_text_color)
+            widget.SetBackgroundColour(dark_color)
+
+        for widget in [self.toot_input, self.cw_input, self.privacy_choice, self.timeline_tree, self.posts_list]:
+            widget.SetForegroundColour(light_text_color)
+            widget.SetBackgroundColour(dark_color)
 
         hbox = wx.BoxSizer(wx.HORIZONTAL)
         hbox.Add(self.timeline_tree, 0, wx.EXPAND | wx.ALL, 5)
@@ -269,12 +354,19 @@ class ThriveFrame(wx.Frame):
             event.Skip()
 
     def delete_selected_post(self):
+        if not self.mastodon:
+            return
         selection = self.posts_list.GetSelection()
         if selection == wx.NOT_FOUND:
             return
-        status = self.timelines_data["home"][selection] if selection < len(self.timelines_data["home"]) else None
-        if not status or status.get('account', {}).get('id') != (self.me or {}).get('id'):
-            wx.MessageBox("Stop trying to take down other people's posts.", "Error", wx.OK | wx.ICON_ERROR)
+        current_item = self.timeline_tree.GetSelection()
+        key = next((k for k, v in self.timeline_nodes.items() if v == current_item), None)
+        if not key or key == "notifications":
+            return  # can't delete from notifications list
+        status = self.timelines_data[key][selection]
+        my_id = (self.me or {}).get('id')
+        if status.get('account', {}).get('id') != my_id:
+            wx.MessageBox("Stop trying to take down other people's posts. I know you probably want to, but it just won't work.", "Error", wx.OK | wx.ICON_ERROR)
             return
         if status.get("reblog"):
             confirm = wx.MessageBox("Are you sure you want to unboost this post?", "Confirm Unboost", wx.YES_NO | wx.ICON_QUESTION)
@@ -284,12 +376,12 @@ class ThriveFrame(wx.Frame):
                 except Exception as e:
                     wx.MessageBox(f"Error unboosting: {e}", "Error", wx.OK | wx.ICON_ERROR)
         else:
-            confirm = wx.MessageBox("Are you sure you want to take down this post? It will be removed from Mastodon.", "Confirm Deletion", wx.YES_NO | wx.ICON_WARNING)
+            confirm = wx.MessageBox("Are you sure you want to take down this post? It will be removed from Mastodon. This action cannot be undone.", "Confirm Deletion", wx.YES_NO | wx.ICON_WARNING)
             if confirm == wx.YES:
                 try:
                     self.mastodon.status_delete(status['id'])
                 except Exception as e:
-                    wx.MessageBox(f"Error deleting: {e}", "Error", wx.OK | wx.ICON_ERROR)
+                    wx.MessageBox(f"Error deleting post: {e}", "Error", wx.OK | wx.ICON_ERROR)
 
     # --- Streaming ---
     def start_streaming(self):
@@ -390,81 +482,6 @@ class ThriveFrame(wx.Frame):
             if current_item == node:
                 self.load_timeline(key)
                 break
-
-    def on_refresh(self, event):
-        current_item = self.timeline_tree.GetSelection()
-        for key, node in self.timeline_nodes.items():
-            if current_item == node:
-                self.load_timeline(key)
-                break
-
-    def on_toggle_cw(self, event):
-        show = self.cw_toggle.IsChecked()
-        self.cw_input.Show(show)
-        self.cw_label.Show(show)
-        self.panel.Layout()
-
-    def on_post(self, event):
-        if not self.mastodon:
-            wx.MessageBox("Not connected to a server.", "Error")
-            return
-        status_text = self.toot_input.GetValue().strip()
-        spoiler = self.cw_input.GetValue().strip() if self.cw_toggle.IsChecked() else None
-        visibility = self.privacy_values[self.privacy_choice.GetSelection()]
-        if not status_text:
-            wx.MessageBox("Cannot post empty status.", "Error")
-            return
-        try:
-            self.mastodon.status_post(status_text, spoiler_text=spoiler, visibility=visibility)
-            if tootsnd:
-                tootsnd.play()
-            self.toot_input.SetValue("")
-            self.cw_input.SetValue("")
-            self.cw_toggle.SetValue(False)
-            self.on_toggle_cw(None)
-        except Exception as e:
-            wx.MessageBox(f"Error: {e}", "Post Error")
-
-    def on_key_press(self, event):
-        mods = event.HasAnyModifiers()
-        if event.GetKeyCode() == wx.WXK_RETURN and self.FindFocus() == self.posts_list:
-            self.show_post_details()
-        elif event.GetKeyCode() == wx.WXK_DELETE and self.FindFocus() == self.posts_list:
-            self.delete_selected_post()
-        elif event.GetKeyCode() == wx.WXK_RETURN and self.FindFocus() == self.toot_input and mods:
-            self.on_post(event)
-        else:
-            event.Skip()
-
-    def delete_selected_post(self):
-        if not self.mastodon:
-            return
-        selection = self.posts_list.GetSelection()
-        if selection == wx.NOT_FOUND:
-            return
-        current_item = self.timeline_tree.GetSelection()
-        key = next((k for k, v in self.timeline_nodes.items() if v == current_item), None)
-        if not key or key == "notifications":
-            return  # can't delete from notifications list
-        status = self.timelines_data[key][selection]
-        my_id = (self.me or {}).get('id')
-        if status.get('account', {}).get('id') != my_id:
-            wx.MessageBox("Stop trying to take down other people's posts. I know you probably want to, but it just won't work.", "Error", wx.OK | wx.ICON_ERROR)
-            return
-        if status.get("reblog"):
-            confirm = wx.MessageBox("Are you sure you want to unboost this post?", "Confirm Unboost", wx.YES_NO | wx.ICON_QUESTION)
-            if confirm == wx.YES:
-                try:
-                    self.mastodon.status_unreblog(status['id'])
-                except Exception as e:
-                    wx.MessageBox(f"Error unboosting: {e}", "Error", wx.OK | wx.ICON_ERROR)
-        else:
-            confirm = wx.MessageBox("Are you sure you want to take down this post? It will be removed from Mastodon. This action cannot be undone.", "Confirm Deletion", wx.YES_NO | wx.ICON_WARNING)
-            if confirm == wx.YES:
-                try:
-                    self.mastodon.status_delete(status['id'])
-                except Exception as e:
-                    wx.MessageBox(f"Error deleting post: {e}", "Error", wx.OK | wx.ICON_ERROR)
 
     def conf(self):
         return EasySettings("thrive.ini")

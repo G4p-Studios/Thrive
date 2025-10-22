@@ -7,12 +7,75 @@ from sound_lib import output as o
 from sound_lib.main import BassError
 from easysettings import EasySettings
 import main_frame
+
+# --- Dark Mode for MSW ---
+try:
+    import ctypes
+    from ctypes import wintypes
+
+    class WxMswDarkMode:
+        """
+        Manages dark mode for top-level windows on Microsoft Windows.
+        Uses undocumented APIs for immersive dark mode, so it may break.
+        """
+        _instance = None
+
+        def __new__(cls):
+            if cls._instance is None:
+                cls._instance = super(WxMswDarkMode, cls).__new__(cls)
+                try:
+                    cls.dwmapi = ctypes.WinDLL("dwmapi")
+                    # DWMWA_USE_IMMERSIVE_DARK_MODE is 20 in recent SDKs
+                    cls.DWMWA_USE_IMMERSIVE_DARK_MODE = 20
+                except (AttributeError, OSError):
+                    cls.dwmapi = None
+            return cls._instance
+
+        def enable(self, window: wx.Window, enable: bool = True):
+            """
+            Enable or disable dark mode for a given wx.Window.
+            """
+            if not self.dwmapi:
+                return False
+
+            try:
+                hwnd = window.GetHandle()
+                value = wintypes.BOOL(enable)
+                hr = self.dwmapi.DwmSetWindowAttribute(
+                    hwnd,
+                    self.DWMWA_USE_IMMERSIVE_DARK_MODE,
+                    ctypes.byref(value),
+                    ctypes.sizeof(value)
+                )
+                # If attribute 20 fails, try older attribute 19 as a fallback
+                if hr != 0:
+                    self.DWMWA_USE_IMMERSIVE_DARK_MODE = 19
+                    hr = self.dwmapi.DwmSetWindowAttribute(
+                        hwnd,
+                        self.DWMWA_USE_IMMERSIVE_DARK_MODE,
+                        ctypes.byref(value),
+                        ctypes.sizeof(value)
+                    )
+                return hr == 0
+            except Exception:
+                return False
+
+except (ImportError, ModuleNotFoundError):
+    # Create a dummy class if ctypes is not available (e.g., non-Windows)
+    class WxMswDarkMode:
+        def enable(self, window: wx.Window, enable: bool = True):
+            return False
+
+# --- End of Dark Mode Class ---
+
+
 out = o.Output()
 if not os.path.exists("thrive.ini"):
 	conf = EasySettings("thrive.ini")
 	conf.setsave("soundpack", "default")
 else:
 	conf = EasySettings("thrive.ini")
+
 class PostDetailsDialog(wx.Dialog):
 	def __init__(self, parent, mastodon, status, me_account):
 		account = status["account"]
@@ -25,15 +88,26 @@ class PostDetailsDialog(wx.Dialog):
 		self.account = account
 		self.privacy_options = ["Public", "Unlisted", "Followers-only", "Direct"]
 		self.privacy_values = ["public", "unlisted", "private", "direct"]
-
+		
+		# --- Enable Dark Mode ---
+		self.dark_color = wx.Colour(40, 40, 40)
+		self.light_text_color = wx.WHITE
+		self.dark_mode_manager = WxMswDarkMode()
+		self.dark_mode_manager.enable(self)
+		
+		self.panel = wx.Panel(self)
+		self.panel.SetBackgroundColour(self.dark_color)
+		self.SetBackgroundColour(self.dark_color)
+		
 		content = strip_html(self.status["content"])
 		self.reply_users=""
 		me=self.me['acct']
 		for i in content.split(" "):
 			if i.startswith("@") and i!="@"+me: self.reply_users+=i+" "
 		if self.account.acct!=me: self.reply_users="@"+self.account.acct+" "+self.reply_users
-		self.content_label  = wx.StaticText(self, label="Post C&ontent")
-		self.content_box = wx.TextCtrl(self, value=content, style=wx.TE_MULTILINE | wx.TE_READONLY)
+
+		self.content_label  = wx.StaticText(self.panel, label="Post C&ontent")
+		self.content_box = wx.TextCtrl(self.panel, value=content, style=wx.TE_MULTILINE | wx.TE_READONLY)
 
 		app = self.status.get("application")
 		source = app["name"] if app and "name" in app else "Unknown"
@@ -51,16 +125,23 @@ Favorited {favs} times.
 {replies} replies
 Privacy: {privacy}
 Language: {language}"""
-		self.details_label = wx.StaticText(self, label="Post &Details")
-		self.details_box = wx.TextCtrl(self, value=detail_text, style=wx.TE_MULTILINE | wx.TE_READONLY)
+		self.details_label = wx.StaticText(self.panel, label="Post &Details")
+		self.details_box = wx.TextCtrl(self.panel, value=detail_text, style=wx.TE_MULTILINE | wx.TE_READONLY)
 
-		self.reply_button = wx.Button(self, label="&Reply")
-		self.boost_button = wx.Button(self, label="Un&boost" if self.status["reblogged"] else "&Boost")
-		self.fav_button = wx.Button(self, label="Un&favourite" if self.status["favourited"] else "&Favourite")
-		self.profile_button = wx.Button(self, label=f"View &Profile of {display_name}")
-		self.take_down_button = wx.Button(self, label="&Take down")
-		self.close_button = wx.Button(self, id=wx.ID_CANCEL, label="&Close")
+		self.reply_button = wx.Button(self.panel, label="&Reply")
+		self.boost_button = wx.Button(self.panel, label="Un&boost" if self.status["reblogged"] else "&Boost")
+		self.fav_button = wx.Button(self.panel, label="Un&favourite" if self.status["favourited"] else "&Favourite")
+		self.profile_button = wx.Button(self.panel, label=f"View &Profile of {display_name}")
+		self.take_down_button = wx.Button(self.panel, label="&Take down")
+		self.close_button = wx.Button(self.panel, id=wx.ID_CANCEL, label="&Close")
 
+		# --- Apply dark theme to controls ---
+		for widget in [self.content_label, self.details_label]:
+			widget.SetForegroundColour(self.light_text_color)
+		for widget in [self.content_box, self.details_box]:
+			widget.SetBackgroundColour(self.dark_color)
+			widget.SetForegroundColour(self.light_text_color)
+			
 		self.reply_button.Bind(wx.EVT_BUTTON, self.reply)
 		self.boost_button.Bind(wx.EVT_BUTTON, self.toggle_boost)
 		self.fav_button.Bind(wx.EVT_BUTTON, self.toggle_fav)
@@ -68,8 +149,9 @@ Language: {language}"""
 		self.profile_button.Bind(wx.EVT_BUTTON, lambda e: ViewProfileDialog(self, self.account).ShowModal())
 
 		sizer = wx.BoxSizer(wx.VERTICAL)
+		sizer.Add(self.content_label, 0, wx.ALL, 5)
 		sizer.Add(self.content_box, 1, wx.ALL | wx.EXPAND, 5)
-
+		sizer.Add(self.details_label, 0, wx.ALL, 5)
 		sizer.Add(self.details_box, 0, wx.ALL | wx.EXPAND, 5)
 
 		btns = wx.BoxSizer(wx.HORIZONTAL)
@@ -83,21 +165,23 @@ Language: {language}"""
 		btns.Add(self.close_button, 0, wx.ALL, 5)
 
 		sizer.Add(btns, 0, wx.EXPAND | wx.ALL, 5)
-		self.SetSizer(sizer)
+		self.panel.SetSizer(sizer)
 		
-		# Set up the accelerator table for keyboard shortcuts
+		main_sizer = wx.BoxSizer(wx.VERTICAL)
+		main_sizer.Add(self.panel, 1, wx.EXPAND)
+		self.SetSizer(main_sizer)
+
 		self.setup_accelerators()
 
 	def setup_accelerators(self):
 		accel_entries = []
-		# Shortcut for Escape key to close the dialog
 		accel_entries.append((wx.ACCEL_NORMAL, wx.WXK_ESCAPE, wx.ID_CANCEL))
 		
-		# Conditionally add the Alt+T shortcut for the "Take down" button
 		if self.status['account']['id'] == self.me['id']:
 			take_down_id = wx.NewIdRef()
-			accel_entries.append((wx.ACCEL_ALT, ord('T'), take_down_id))
-			self.Bind(wx.EVT_MENU, self.on_take_down, id=take_down_id)
+			self.take_down_button.SetId(take_down_id.GetId())
+			accel_entries.append((wx.ACCEL_ALT, ord('T'), take_down_id.GetId()))
+			self.Bind(wx.EVT_MENU, self.on_take_down, id=take_down_id.GetId())
 
 		accel_tbl = wx.AcceleratorTable(accel_entries)
 		self.SetAcceleratorTable(accel_tbl)
@@ -114,7 +198,11 @@ Language: {language}"""
 
 	def reply(self, event):
 		dialog = wx.Dialog(self, title="Reply to Post", size=(500, 300))
+		self.dark_mode_manager.enable(dialog)
+		dialog.SetBackgroundColour(self.dark_color)
+		
 		panel = wx.Panel(dialog)
+		panel.SetBackgroundColour(self.dark_color)
 		vbox = wx.BoxSizer(wx.VERTICAL)
 
 		label = wx.StaticText(panel, label="&Reply")
@@ -131,6 +219,13 @@ Language: {language}"""
 		except ValueError:
 			self.reply_privacy_choice.SetSelection(0)
 
+		# --- Apply dark theme to reply dialog controls ---
+		for widget in [label, privacy_label]:
+			widget.SetForegroundColour(self.light_text_color)
+		for widget in [self.reply_text, self.reply_privacy_choice]:
+			widget.SetBackgroundColour(self.dark_color)
+			widget.SetForegroundColour(self.light_text_color)
+			
 		send_button = wx.Button(panel, label="&Post")
 		cancel_button = wx.Button(panel, id=wx.ID_CANCEL, label="&Cancel")
 
@@ -147,6 +242,10 @@ Language: {language}"""
 		vbox.Add(buttons, 0, wx.ALIGN_RIGHT | wx.RIGHT | wx.BOTTOM, 10)
 
 		panel.SetSizer(vbox)
+		main_sizer = wx.BoxSizer(wx.VERTICAL)
+		main_sizer.Add(panel, 1, wx.EXPAND)
+		dialog.SetSizer(main_sizer)
+		
 		dialog.Bind(wx.EVT_CHAR_HOOK, self.on_reply_key_press)
 		dialog.ShowModal()
 		dialog.Destroy()

@@ -4,6 +4,67 @@ from utils import load_user_data
 from main_frame import ThriveFrame
 from mastodon import Mastodon
 
+# --- Dark Mode for MSW ---
+try:
+    import ctypes
+    from ctypes import wintypes
+
+    class WxMswDarkMode:
+        """
+        Manages dark mode for top-level windows on Microsoft Windows.
+        Uses undocumented APIs for immersive dark mode, so it may break.
+        """
+        _instance = None
+
+        def __new__(cls):
+            if cls._instance is None:
+                cls._instance = super(WxMswDarkMode, cls).__new__(cls)
+                try:
+                    cls.dwmapi = ctypes.WinDLL("dwmapi")
+                    # DWMWA_USE_IMMERSIVE_DARK_MODE is 20 in recent SDKs
+                    cls.DWMWA_USE_IMMERSIVE_DARK_MODE = 20
+                except (AttributeError, OSError):
+                    cls.dwmapi = None
+            return cls._instance
+
+        def enable(self, window: wx.Window, enable: bool = True):
+            """
+            Enable or disable dark mode for a given wx.Window.
+            """
+            if not self.dwmapi:
+                return False
+
+            try:
+                hwnd = window.GetHandle()
+                value = wintypes.BOOL(enable)
+                hr = self.dwmapi.DwmSetWindowAttribute(
+                    hwnd,
+                    self.DWMWA_USE_IMMERSIVE_DARK_MODE,
+                    ctypes.byref(value),
+                    ctypes.sizeof(value)
+                )
+                # If attribute 20 fails, try older attribute 19 as a fallback
+                if hr != 0:
+                    self.DWMWA_USE_IMMERSIVE_DARK_MODE = 19
+                    hr = self.dwmapi.DwmSetWindowAttribute(
+                        hwnd,
+                        self.DWMWA_USE_IMMERSIVE_DARK_MODE,
+                        ctypes.byref(value),
+                        ctypes.sizeof(value)
+                    )
+                return hr == 0
+            except Exception:
+                return False
+
+except (ImportError, ModuleNotFoundError):
+    # Create a dummy class if ctypes is not available (e.g., non-Windows)
+    class WxMswDarkMode:
+        def enable(self, window: wx.Window, enable: bool = True):
+            return False
+
+# --- End of Dark Mode Class ---
+
+
 class ThriveApp(wx.App):
     def OnInit(self):
         user_data = load_user_data()
