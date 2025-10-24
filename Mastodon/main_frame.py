@@ -100,10 +100,10 @@ class SysListViewAdapter(wx.ListCtrl):
 	def __init__(self, parent, *args, **kwargs):
 		super().__init__(parent, style=wx.LC_REPORT | wx.LC_SINGLE_SEL)
 		# Columns: Author, Content, Time, Client (reordered)
-		self.InsertColumn(0, "Author", width=160)
-		self.InsertColumn(1, "Content", width=360)
-		self.InsertColumn(2, "Time", width=120)
-		self.InsertColumn(3, "Client", width=120)
+		self.InsertColumn(0, "Author", width=180)
+		self.InsertColumn(1, "Content", width=512)
+		self.InsertColumn(2, "Time", width=140)
+		self.InsertColumn(3, "Client", width=140)
 
 	def _normalize_row(self, item):
 		"""Return a 4-element list for columns based on the given item."""
