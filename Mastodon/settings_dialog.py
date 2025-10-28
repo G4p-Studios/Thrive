@@ -7,6 +7,7 @@ import main_frame
 try:
     import ctypes
     from ctypes import wintypes
+    import winreg
 
     class WxMswDarkMode:
         """
@@ -55,40 +56,59 @@ try:
             except Exception:
                 return False
 
+    def is_windows_dark_mode():
+        """
+        Checks the Windows Registry to determine if dark mode for apps is enabled.
+        Returns True if dark mode is enabled, False otherwise.
+        """
+        try:
+            key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, r'Software\Microsoft\Windows\CurrentVersion\Themes\Personalize')
+            value, regtype = winreg.QueryValueEx(key, 'AppsUseLightTheme')
+            winreg.CloseKey(key)
+            return value == 0  # 0 means dark mode is on
+        except (FileNotFoundError, OSError):
+            return False
+
 except (ImportError, ModuleNotFoundError):
-    # Create a dummy class if ctypes is not available (e.g., non-Windows)
+    # Create dummy classes and functions if modules are not available (e.g., non-Windows)
     class WxMswDarkMode:
         def enable(self, window: wx.Window, enable: bool = True):
             return False
 
-# --- End of Dark Mode Class ---
+    def is_windows_dark_mode():
+        return False
+
+# --- End of Dark Mode Logic ---
 
 class SettingsDialog(wx.Dialog):
     def __init__(self, parent, on_save_callback=None):
         super().__init__(parent, title="Settings", size=(400, 200))
         self.conf = EasySettings("thrive.ini")
         self.on_save_callback = on_save_callback
-
-        # --- Enable Dark Mode ---
-        dark_color = wx.Colour(40, 40, 40)
-        light_text_color = wx.WHITE
-        
-        dark_mode_manager = WxMswDarkMode()
-        dark_mode_manager.enable(self)
-        
-        self.SetBackgroundColour(dark_color)
         
         panel = wx.Panel(self)
-        panel.SetBackgroundColour(dark_color)
         vbox = wx.BoxSizer(wx.VERTICAL)
 
         soundpack_label = wx.StaticText(panel, label="Select Sound Pack:")
-        soundpack_label.SetForegroundColour(light_text_color)
+        self.soundpack_choice = wx.Choice(panel)
+
+        # --- Conditional Dark Mode ---
+        if is_windows_dark_mode():
+            dark_color = wx.Colour(40, 40, 40)
+            light_text_color = wx.WHITE
+            
+            dark_mode_manager = WxMswDarkMode()
+            dark_mode_manager.enable(self)
+            
+            self.SetBackgroundColour(dark_color)
+            panel.SetBackgroundColour(dark_color)
+            
+            soundpack_label.SetForegroundColour(light_text_color)
+            self.soundpack_choice.SetBackgroundColour(dark_color)
+            self.soundpack_choice.SetForegroundColour(light_text_color)
+
         vbox.Add(soundpack_label, 0, wx.ALL | wx.EXPAND, 5)
 
-        self.soundpack_choice = wx.Choice(panel)
-        self.soundpack_choice.SetBackgroundColour(dark_color)
-        self.soundpack_choice.SetForegroundColour(light_text_color)
         self.load_soundpacks()
         vbox.Add(self.soundpack_choice, 0, wx.ALL | wx.EXPAND, 5)
 
@@ -129,11 +149,6 @@ class SettingsDialog(wx.Dialog):
     def on_save(self, event):
         selected = self.soundpack_choice.GetStringSelection()
         self.conf.setsave("soundpack", selected)
-        # This line seems incorrect as main_frame.soundpack is not defined.
-        # It should probably be updating the config that gets read elsewhere.
-        # Correcting this would be:
-        # main_frame.conf.setsave("soundpack", selected) 
-        # However, modifying main_frame directly is avoided. The callback handles it.
         if self.on_save_callback:
             self.on_save_callback()
         wx.MessageBox("Settings saved. Sound changes will take effect on next restart or action.", "Settings Saved")

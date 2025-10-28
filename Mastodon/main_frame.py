@@ -14,6 +14,7 @@ import re
 try:
     import ctypes
     from ctypes import wintypes
+    import winreg
 
     class WxMswDarkMode:
         """
@@ -62,13 +63,30 @@ try:
             except Exception:
                 return False
 
+    def is_windows_dark_mode():
+        """
+        Checks the Windows Registry to determine if dark mode for apps is enabled.
+        Returns True if dark mode is enabled, False otherwise.
+        """
+        try:
+            key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, r'Software\Microsoft\Windows\CurrentVersion\Themes\Personalize')
+            value, regtype = winreg.QueryValueEx(key, 'AppsUseLightTheme')
+            winreg.CloseKey(key)
+            return value == 0  # 0 means dark mode is on
+        except (FileNotFoundError, OSError):
+            # Key or value may not exist, assume light mode
+            return False
+
 except (ImportError, ModuleNotFoundError):
-    # Create a dummy class if ctypes is not available (e.g., non-Windows)
+    # Create dummy classes and functions if modules are not available (e.g., non-Windows)
     class WxMswDarkMode:
         def enable(self, window: wx.Window, enable: bool = True):
             return False
+            
+    def is_windows_dark_mode():
+        return False
 
-# --- End of Dark Mode Class ---
+# --- End of Dark Mode Logic ---
 
 
 # Precompile regex for performance
@@ -216,19 +234,20 @@ class ThriveFrame(wx.Frame):
         # --- UI setup ---
         self.panel = wx.Panel(self)
 
-        # --- Enable Dark Mode ---
-        # The hex color #FF282828 is ARGB. wx.Colour needs RGB (40, 40, 40).
-        dark_color = wx.Colour(40, 40, 40)
-        light_text_color = wx.WHITE
+        # --- Conditional Dark Mode ---
+        if is_windows_dark_mode():
+            # The hex color #FF282828 is ARGB. wx.Colour needs RGB (40, 40, 40).
+            dark_color = wx.Colour(40, 40, 40)
+            light_text_color = wx.WHITE
 
-        # Enable immersive dark mode for the window title bar
-        dark_mode_manager = WxMswDarkMode()
-        dark_mode_manager.enable(self)
+            # Enable immersive dark mode for the window title bar
+            dark_mode_manager = WxMswDarkMode()
+            dark_mode_manager.enable(self)
 
-        # Set background and foreground colors for main components
-        self.SetBackgroundColour(dark_color)
-        self.panel.SetBackgroundColour(dark_color)
-        self.panel.SetForegroundColour(light_text_color)
+            # Set background and foreground colors for main components
+            self.SetBackgroundColour(dark_color)
+            self.panel.SetBackgroundColour(dark_color)
+            self.panel.SetForegroundColour(light_text_color)
         
         menubar = wx.MenuBar()
         settings_menu = wx.Menu()
@@ -275,14 +294,17 @@ class ThriveFrame(wx.Frame):
         # Use the SysListViewAdapter (wx.ListCtrl) so screen readers see a table
         self.posts_list = SysListViewAdapter(self.panel)
 
-        # Apply dark mode colors to widgets
-        for widget in [self.toot_label, self.cw_label, self.cw_toggle, self.privacy_label, self.posts_label]:
-            widget.SetForegroundColour(light_text_color)
-            widget.SetBackgroundColour(dark_color)
+        # Apply dark mode colors to widgets if enabled
+        if is_windows_dark_mode():
+            dark_color = wx.Colour(40, 40, 40)
+            light_text_color = wx.WHITE
+            for widget in [self.toot_label, self.cw_label, self.cw_toggle, self.privacy_label, self.posts_label]:
+                widget.SetForegroundColour(light_text_color)
+                widget.SetBackgroundColour(dark_color)
 
-        for widget in [self.toot_input, self.cw_input, self.privacy_choice, self.timeline_tree, self.posts_list]:
-            widget.SetForegroundColour(light_text_color)
-            widget.SetBackgroundColour(dark_color)
+            for widget in [self.toot_input, self.cw_input, self.privacy_choice, self.timeline_tree, self.posts_list]:
+                widget.SetForegroundColour(light_text_color)
+                widget.SetBackgroundColour(dark_color)
 
         hbox = wx.BoxSizer(wx.HORIZONTAL)
         hbox.Add(self.timeline_tree, 0, wx.EXPAND | wx.ALL, 5)

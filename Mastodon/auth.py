@@ -8,6 +8,7 @@ from main_frame import ThriveFrame
 try:
     import ctypes
     from ctypes import wintypes
+    import winreg
 
     class WxMswDarkMode:
         """
@@ -56,39 +57,61 @@ try:
             except Exception:
                 return False
 
+    def is_windows_dark_mode():
+        """
+        Checks the Windows Registry to determine if dark mode for apps is enabled.
+        Returns True if dark mode is enabled, False otherwise.
+        """
+        try:
+            key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, r'Software\Microsoft\Windows\CurrentVersion\Themes\Personalize')
+            value, regtype = winreg.QueryValueEx(key, 'AppsUseLightTheme')
+            winreg.CloseKey(key)
+            return value == 0  # 0 means dark mode is on
+        except (FileNotFoundError, OSError):
+            # Key or value may not exist, assume light mode
+            return False
+
 except (ImportError, ModuleNotFoundError):
-    # Create a dummy class if ctypes is not available (e.g., non-Windows)
+    # Create dummy classes and functions if modules are not available (e.g., non-Windows)
     class WxMswDarkMode:
         def enable(self, window: wx.Window, enable: bool = True):
             return False
+            
+    def is_windows_dark_mode():
+        return False
 
-# --- End of Dark Mode Class ---
+# --- End of Dark Mode Logic ---
 
 class AuthFrame(wx.Frame):
 	def __init__(self, *args, **kwargs):
 		super().__init__(*args, **kwargs, size=(400, 180))
 		self.panel = wx.Panel(self)
 		
-		# --- Enable Dark Mode ---
-		dark_color = wx.Colour(40, 40, 40) # Corresponds to #282828
-		light_text_color = wx.WHITE
+		# --- Conditional Dark Mode ---
+		self.dark_mode_active = is_windows_dark_mode()
+		if self.dark_mode_active:
+			dark_color = wx.Colour(40, 40, 40) # Corresponds to #282828
+			light_text_color = wx.WHITE
 
-		dark_mode_manager = WxMswDarkMode()
-		dark_mode_manager.enable(self)
+			dark_mode_manager = WxMswDarkMode()
+			dark_mode_manager.enable(self)
 
-		self.SetBackgroundColour(dark_color)
-		self.panel.SetBackgroundColour(dark_color)
-		self.panel.SetForegroundColour(light_text_color)
+			self.SetBackgroundColour(dark_color)
+			self.panel.SetBackgroundColour(dark_color)
+			self.panel.SetForegroundColour(light_text_color)
 		
 		vbox = wx.BoxSizer(wx.VERTICAL)
 
 		self.instance_label = wx.StaticText(self.panel, label="Mastodon Instance URL:")
 		self.instance_input = wx.TextCtrl(self.panel, value="https://vee.seedy.cc")
 
-		# Apply dark theme to widgets
-		self.instance_label.SetForegroundColour(light_text_color)
-		self.instance_input.SetBackgroundColour(dark_color)
-		self.instance_input.SetForegroundColour(light_text_color)
+		# Apply dark theme to widgets if active
+		if self.dark_mode_active:
+			light_text_color = wx.WHITE
+			dark_color = wx.Colour(40, 40, 40)
+			self.instance_label.SetForegroundColour(light_text_color)
+			self.instance_input.SetBackgroundColour(dark_color)
+			self.instance_input.SetForegroundColour(light_text_color)
 		
 		self.auth_button = wx.Button(self.panel, label="Authenticate")
 		self.auth_button.Bind(wx.EVT_BUTTON, self.on_authenticate)

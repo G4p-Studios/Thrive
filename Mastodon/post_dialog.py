@@ -12,6 +12,7 @@ import main_frame
 try:
     import ctypes
     from ctypes import wintypes
+    import winreg
 
     class WxMswDarkMode:
         """
@@ -60,13 +61,29 @@ try:
             except Exception:
                 return False
 
+    def is_windows_dark_mode():
+        """
+        Checks the Windows Registry to determine if dark mode for apps is enabled.
+        Returns True if dark mode is enabled, False otherwise.
+        """
+        try:
+            key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, r'Software\Microsoft\Windows\CurrentVersion\Themes\Personalize')
+            value, regtype = winreg.QueryValueEx(key, 'AppsUseLightTheme')
+            winreg.CloseKey(key)
+            return value == 0  # 0 means dark mode is on
+        except (FileNotFoundError, OSError):
+            return False
+
 except (ImportError, ModuleNotFoundError):
-    # Create a dummy class if ctypes is not available (e.g., non-Windows)
+    # Create dummy classes and functions if modules are not available
     class WxMswDarkMode:
         def enable(self, window: wx.Window, enable: bool = True):
             return False
 
-# --- End of Dark Mode Class ---
+    def is_windows_dark_mode():
+        return False
+
+# --- End of Dark Mode Logic ---
 
 
 out = o.Output()
@@ -89,16 +106,18 @@ class PostDetailsDialog(wx.Dialog):
 		self.privacy_options = ["Public", "Unlisted", "Followers-only", "Direct"]
 		self.privacy_values = ["public", "unlisted", "private", "direct"]
 		
-		# --- Enable Dark Mode ---
-		self.dark_color = wx.Colour(40, 40, 40)
-		self.light_text_color = wx.WHITE
-		self.dark_mode_manager = WxMswDarkMode()
-		self.dark_mode_manager.enable(self)
-		
 		self.panel = wx.Panel(self)
-		self.panel.SetBackgroundColour(self.dark_color)
-		self.SetBackgroundColour(self.dark_color)
 		
+		# --- Conditional Dark Mode ---
+		self.dark_mode_active = is_windows_dark_mode()
+		if self.dark_mode_active:
+			self.dark_color = wx.Colour(40, 40, 40)
+			self.light_text_color = wx.WHITE
+			self.dark_mode_manager = WxMswDarkMode()
+			self.dark_mode_manager.enable(self)
+			self.panel.SetBackgroundColour(self.dark_color)
+			self.SetBackgroundColour(self.dark_color)
+
 		content = strip_html(self.status["content"])
 		self.reply_users=""
 		me=self.me['acct']
@@ -135,12 +154,13 @@ Language: {language}"""
 		self.take_down_button = wx.Button(self.panel, label="&Take down")
 		self.close_button = wx.Button(self.panel, id=wx.ID_CANCEL, label="&Close")
 
-		# --- Apply dark theme to controls ---
-		for widget in [self.content_label, self.details_label]:
-			widget.SetForegroundColour(self.light_text_color)
-		for widget in [self.content_box, self.details_box]:
-			widget.SetBackgroundColour(self.dark_color)
-			widget.SetForegroundColour(self.light_text_color)
+		# --- Apply dark theme to controls if active ---
+		if self.dark_mode_active:
+			for widget in [self.content_label, self.details_label]:
+				widget.SetForegroundColour(self.light_text_color)
+			for widget in [self.content_box, self.details_box]:
+				widget.SetBackgroundColour(self.dark_color)
+				widget.SetForegroundColour(self.light_text_color)
 			
 		self.reply_button.Bind(wx.EVT_BUTTON, self.reply)
 		self.boost_button.Bind(wx.EVT_BUTTON, self.toggle_boost)
@@ -198,11 +218,15 @@ Language: {language}"""
 
 	def reply(self, event):
 		dialog = wx.Dialog(self, title="Reply to Post", size=(500, 300))
-		self.dark_mode_manager.enable(dialog)
-		dialog.SetBackgroundColour(self.dark_color)
-		
 		panel = wx.Panel(dialog)
-		panel.SetBackgroundColour(self.dark_color)
+		
+		# --- Apply dark theme to reply dialog if active ---
+		if self.dark_mode_active:
+			dark_mode_manager = WxMswDarkMode()
+			dark_mode_manager.enable(dialog)
+			dialog.SetBackgroundColour(self.dark_color)
+			panel.SetBackgroundColour(self.dark_color)
+		
 		vbox = wx.BoxSizer(wx.VERTICAL)
 
 		label = wx.StaticText(panel, label="&Reply")
@@ -219,12 +243,13 @@ Language: {language}"""
 		except ValueError:
 			self.reply_privacy_choice.SetSelection(0)
 
-		# --- Apply dark theme to reply dialog controls ---
-		for widget in [label, privacy_label]:
-			widget.SetForegroundColour(self.light_text_color)
-		for widget in [self.reply_text, self.reply_privacy_choice]:
-			widget.SetBackgroundColour(self.dark_color)
-			widget.SetForegroundColour(self.light_text_color)
+		# --- Apply dark theme to reply dialog controls if active ---
+		if self.dark_mode_active:
+			for widget in [label, privacy_label]:
+				widget.SetForegroundColour(self.light_text_color)
+			for widget in [self.reply_text, self.reply_privacy_choice]:
+				widget.SetBackgroundColour(self.dark_color)
+				widget.SetForegroundColour(self.light_text_color)
 			
 		send_button = wx.Button(panel, label="&Post")
 		cancel_button = wx.Button(panel, id=wx.ID_CANCEL, label="&Cancel")

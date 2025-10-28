@@ -8,6 +8,7 @@ from mastodon import Mastodon
 try:
     import ctypes
     from ctypes import wintypes
+    import winreg
 
     class WxMswDarkMode:
         """
@@ -56,13 +57,29 @@ try:
             except Exception:
                 return False
 
+    def is_windows_dark_mode():
+        """
+        Checks the Windows Registry to determine if dark mode for apps is enabled.
+        Returns True if dark mode is enabled, False otherwise.
+        """
+        try:
+            key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, r'Software\Microsoft\Windows\CurrentVersion\Themes\Personalize')
+            value, regtype = winreg.QueryValueEx(key, 'AppsUseLightTheme')
+            winreg.CloseKey(key)
+            return value == 0  # 0 means dark mode is on
+        except (FileNotFoundError, OSError):
+            return False
+
 except (ImportError, ModuleNotFoundError):
-    # Create a dummy class if ctypes is not available (e.g., non-Windows)
+    # Create dummy classes and functions if modules are not available (e.g., non-Windows)
     class WxMswDarkMode:
         def enable(self, window: wx.Window, enable: bool = True):
             return False
 
-# --- End of Dark Mode Class ---
+    def is_windows_dark_mode():
+        return False
+
+# --- End of Dark Mode Logic ---
 
 
 class ThriveApp(wx.App):
