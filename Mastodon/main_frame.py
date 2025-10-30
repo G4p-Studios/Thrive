@@ -302,7 +302,7 @@ class ThriveFrame(wx.Frame):
                 widget.SetForegroundColour(light_text_color)
                 widget.SetBackgroundColour(dark_color)
 
-            for widget in [self.toot_input, self.cw_input, self.privacy_choice, self.timeline_tree, self.posts_list]:
+            for widget in [self.toot_input, self.cw_input, self.privacy_choice, self.timeline_tree, self.posts_list, self.post_button, self.exit_button]:
                 widget.SetForegroundColour(light_text_color)
                 widget.SetBackgroundColour(dark_color)
 

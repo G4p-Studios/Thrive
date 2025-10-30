@@ -91,6 +91,8 @@ class SettingsDialog(wx.Dialog):
 
         soundpack_label = wx.StaticText(panel, label="Select Sound Pack:")
         self.soundpack_choice = wx.Choice(panel)
+        save_button = wx.Button(panel, label="&Save")
+        cancel_button = wx.Button(panel, label="&Cancel", id=wx.ID_CANCEL)
 
         # --- Conditional Dark Mode ---
         if is_windows_dark_mode():
@@ -106,6 +108,10 @@ class SettingsDialog(wx.Dialog):
             soundpack_label.SetForegroundColour(light_text_color)
             self.soundpack_choice.SetBackgroundColour(dark_color)
             self.soundpack_choice.SetForegroundColour(light_text_color)
+            save_button.SetBackgroundColour(dark_color)
+            save_button.SetForegroundColour(light_text_color)
+            cancel_button.SetBackgroundColour(dark_color)
+            cancel_button.SetForegroundColour(light_text_color)
 
         vbox.Add(soundpack_label, 0, wx.ALL | wx.EXPAND, 5)
 
@@ -113,8 +119,6 @@ class SettingsDialog(wx.Dialog):
         vbox.Add(self.soundpack_choice, 0, wx.ALL | wx.EXPAND, 5)
 
         hbox = wx.BoxSizer(wx.HORIZONTAL)
-        save_button = wx.Button(panel, label="&Save")
-        cancel_button = wx.Button(panel, label="&Cancel", id=wx.ID_CANCEL)
         hbox.Add(save_button, 0, wx.ALL, 5)
         hbox.Add(cancel_button, 0, wx.ALL, 5)
 

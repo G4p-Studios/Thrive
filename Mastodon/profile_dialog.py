@@ -122,6 +122,8 @@ Website: {website}"""
 			self.SetBackgroundColour(dark_color)
 			self.text.SetBackgroundColour(dark_color)
 			self.text.SetForegroundColour(light_text_color)
+			self.close_button.SetBackgroundColour(dark_color)
+			self.close_button.SetForegroundColour(light_text_color)
 
 		sizer = wx.BoxSizer(wx.VERTICAL)
 		sizer.Add(self.text, 1, wx.ALL | wx.EXPAND, 10)

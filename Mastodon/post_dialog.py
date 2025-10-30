@@ -161,6 +161,9 @@ Language: {language}"""
 			for widget in [self.content_box, self.details_box]:
 				widget.SetBackgroundColour(self.dark_color)
 				widget.SetForegroundColour(self.light_text_color)
+			for btn in [self.reply_button, self.boost_button, self.fav_button, self.profile_button, self.take_down_button, self.close_button]:
+				btn.SetBackgroundColour(self.dark_color)
+				btn.SetForegroundColour(self.light_text_color)
 			
 		self.reply_button.Bind(wx.EVT_BUTTON, self.reply)
 		self.boost_button.Bind(wx.EVT_BUTTON, self.toggle_boost)
@@ -220,40 +223,35 @@ Language: {language}"""
 		dialog = wx.Dialog(self, title="Reply to Post", size=(500, 300))
 		panel = wx.Panel(dialog)
 		
+		vbox = wx.BoxSizer(wx.VERTICAL)
+		label = wx.StaticText(panel, label="&Reply")
+		self.reply_text = wx.TextCtrl(panel, style=wx.TE_MULTILINE, size=(480, 100))
+		self.reply_text.SetValue(self.reply_users.strip() + " " if self.reply_users.strip() else "")
+		self.reply_text.SetInsertionPoint(len(self.reply_text.GetValue()))
+		privacy_label = wx.StaticText(panel, label="P&rivacy:")
+		self.reply_privacy_choice = wx.Choice(panel, choices=self.privacy_options)
+		send_button = wx.Button(panel, label="&Post")
+		cancel_button = wx.Button(panel, id=wx.ID_CANCEL, label="&Cancel")
+		
 		# --- Apply dark theme to reply dialog if active ---
 		if self.dark_mode_active:
 			dark_mode_manager = WxMswDarkMode()
 			dark_mode_manager.enable(dialog)
 			dialog.SetBackgroundColour(self.dark_color)
 			panel.SetBackgroundColour(self.dark_color)
+			for widget in [label, privacy_label]:
+				widget.SetForegroundColour(self.light_text_color)
+			for widget in [self.reply_text, self.reply_privacy_choice, send_button, cancel_button]:
+				widget.SetBackgroundColour(self.dark_color)
+				widget.SetForegroundColour(self.light_text_color)
 		
-		vbox = wx.BoxSizer(wx.VERTICAL)
-
-		label = wx.StaticText(panel, label="&Reply")
-		self.reply_text = wx.TextCtrl(panel, style=wx.TE_MULTILINE, size=(480, 100))
-		self.reply_text.SetValue(self.reply_users.strip() + " " if self.reply_users.strip() else "")
-		self.reply_text.SetInsertionPoint(len(self.reply_text.GetValue()))
-
-		privacy_label = wx.StaticText(panel, label="P&rivacy:")
-		self.reply_privacy_choice = wx.Choice(panel, choices=self.privacy_options)
 		original_visibility = self.status.get("visibility", "public")
 		try:
 			default_index = self.privacy_values.index(original_visibility)
 			self.reply_privacy_choice.SetSelection(default_index)
 		except ValueError:
 			self.reply_privacy_choice.SetSelection(0)
-
-		# --- Apply dark theme to reply dialog controls if active ---
-		if self.dark_mode_active:
-			for widget in [label, privacy_label]:
-				widget.SetForegroundColour(self.light_text_color)
-			for widget in [self.reply_text, self.reply_privacy_choice]:
-				widget.SetBackgroundColour(self.dark_color)
-				widget.SetForegroundColour(self.light_text_color)
 			
-		send_button = wx.Button(panel, label="&Post")
-		cancel_button = wx.Button(panel, id=wx.ID_CANCEL, label="&Cancel")
-
 		send_button.Bind(wx.EVT_BUTTON, lambda e: self.send_reply(dialog, self.reply_text.GetValue()))
 
 		vbox.Add(label, 0, wx.LEFT | wx.RIGHT | wx.TOP, 10)

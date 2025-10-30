@@ -87,10 +87,15 @@ class AuthFrame(wx.Frame):
 		super().__init__(*args, **kwargs, size=(400, 180))
 		self.panel = wx.Panel(self)
 		
+		# Create widgets first
+		self.instance_label = wx.StaticText(self.panel, label="Mastodon Instance URL:")
+		self.instance_input = wx.TextCtrl(self.panel, value="https://vee.seedy.cc")
+		self.auth_button = wx.Button(self.panel, label="Authenticate")
+
 		# --- Conditional Dark Mode ---
 		self.dark_mode_active = is_windows_dark_mode()
 		if self.dark_mode_active:
-			dark_color = wx.Colour(40, 40, 40) # Corresponds to #282828
+			dark_color = wx.Colour(40, 40, 40)
 			light_text_color = wx.WHITE
 
 			dark_mode_manager = WxMswDarkMode()
@@ -99,23 +104,18 @@ class AuthFrame(wx.Frame):
 			self.SetBackgroundColour(dark_color)
 			self.panel.SetBackgroundColour(dark_color)
 			self.panel.SetForegroundColour(light_text_color)
-		
-		vbox = wx.BoxSizer(wx.VERTICAL)
 
-		self.instance_label = wx.StaticText(self.panel, label="Mastodon Instance URL:")
-		self.instance_input = wx.TextCtrl(self.panel, value="https://vee.seedy.cc")
-
-		# Apply dark theme to widgets if active
-		if self.dark_mode_active:
-			light_text_color = wx.WHITE
-			dark_color = wx.Colour(40, 40, 40)
+			# Apply dark theme to all widgets
 			self.instance_label.SetForegroundColour(light_text_color)
 			self.instance_input.SetBackgroundColour(dark_color)
 			self.instance_input.SetForegroundColour(light_text_color)
+			self.auth_button.SetBackgroundColour(dark_color)
+			self.auth_button.SetForegroundColour(light_text_color)
 		
-		self.auth_button = wx.Button(self.panel, label="Authenticate")
+		# Bind events and set layout
 		self.auth_button.Bind(wx.EVT_BUTTON, self.on_authenticate)
-
+		
+		vbox = wx.BoxSizer(wx.VERTICAL)
 		vbox.Add(self.instance_label, 0, wx.ALL, 5)
 		vbox.Add(self.instance_input, 0, wx.ALL | wx.EXPAND, 5)
 		vbox.Add(self.auth_button, 0, wx.ALL | wx.CENTER, 5)
