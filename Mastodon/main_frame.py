@@ -413,6 +413,14 @@ class ThriveFrame(wx.Frame):
         threading.Thread(target=self.mastodon.stream_user, args=(listener,), daemon=True).start()
 
     def add_new_post(self, status):
+        # A direct message is a status with 'direct' visibility.
+        if status.get("visibility") == "direct":
+            if dmsnd:
+                dmsnd.play()
+        # Don't play a sound for our own posts echoing back from the stream.
+        elif self.me and status.get("account", {}).get("id") != self.me.get("id"):
+            if newtootsnd:
+                newtootsnd.play()
         display = self.format_status_for_display(status)
         if not display:
             return
