@@ -200,6 +200,18 @@ try:
     mentionsnd = stream.FileStream(file=f"sounds/{folder}/new_mention.wav")
 except BassError:
     mentionsnd = None
+try:
+    imagesnd = stream.FileStream(file=f"sounds/{folder}/image.wav")
+except BassError:
+    imagesnd = None
+try:
+    mediasnd = stream.FileStream(file=f"sounds/{folder}/media.wav")
+except BassError:
+    mediasnd = None
+try:
+    select_mentionsnd = stream.FileStream(file=f"sounds/{folder}/mention.wav")
+except BassError:
+    select_mentionsnd = None
 
 # --- Custom Stream Listener ---
 class CustomStreamListener(StreamListener):
@@ -293,6 +305,7 @@ class ThriveFrame(wx.Frame):
         self.timeline_tree.Bind(wx.EVT_TREE_SEL_CHANGED, self.on_timeline_selected)
         # Use the SysListViewAdapter (wx.ListCtrl) so screen readers see a table
         self.posts_list = SysListViewAdapter(self.panel)
+        self.posts_list.Bind(wx.EVT_LIST_ITEM_SELECTED, self.on_post_selected)
 
         # Apply dark mode colors to widgets if enabled
         if is_windows_dark_mode():
@@ -513,11 +526,57 @@ class ThriveFrame(wx.Frame):
                 self.load_timeline(key)
                 break
 
+    def on_post_selected(self, event):
+        selection = event.GetIndex()
+        if selection == wx.NOT_FOUND:
+            event.Skip()
+            return
+        current_item = self.timeline_tree.GetSelection()
+        key = next((k for k, v in self.timeline_nodes.items() if v == current_item), None)
+        if not key:
+            event.Skip()
+            return
+        status = None
+        try:
+            if key == "notifications":
+                notification = self.timelines_data["notifications"][selection]
+                status = notification.get("status")
+            else:
+                status = self.timelines_data[key][selection]
+        except IndexError:
+            status = None
+        if not status:
+            event.Skip()
+            return
+        source_status = status.get('reblog') or status
+        if select_mentionsnd and self.me:
+            my_id = self.me.get('id')
+            if any(m.get('id') == my_id for m in source_status.get('mentions', [])):
+                select_mentionsnd.stop()
+                select_mentionsnd.play()
+                event.Skip()
+                return
+        attachments = source_status.get('media_attachments', [])
+        if not attachments:
+            event.Skip()
+            return
+        if mediasnd and any(att.get('type') in ['video', 'gifv', 'audio'] for att in attachments):
+            mediasnd.stop()
+            mediasnd.play()
+            event.Skip()
+            return
+        if imagesnd and any(att.get('type') == 'image' for att in attachments):
+            imagesnd.stop()
+            imagesnd.play()
+            event.Skip()
+            return
+        event.Skip()
+
     def conf(self):
         return EasySettings("thrive.ini")
 
     def load_sounds(self):
-        global tootsnd, replysnd, boostsnd, favsnd, unfavsnd, newtootsnd, dmsnd, mentionsnd
+        global tootsnd, replysnd, boostsnd, favsnd, unfavsnd, newtootsnd, dmsnd, mentionsnd, imagesnd, mediasnd, select_mentionsnd
         try:
             soundpack = self.conf().get("soundpack", "default")
             folder = "Mastodon-" + soundpack
@@ -538,6 +597,9 @@ class ThriveFrame(wx.Frame):
         newtootsnd = _safe_load(f"sounds/{folder}/new_toot.wav")
         dmsnd = _safe_load(f"sounds/{folder}/new_dm.wav")
         mentionsnd = _safe_load(f"sounds/{folder}/new_mention.wav")
+        imagesnd = _safe_load(f"sounds/{folder}/image.wav")
+        mediasnd = _safe_load(f"sounds/{folder}/media.wav")
+        select_mentionsnd = _safe_load(f"sounds/{folder}/mention.wav")
         return True
 
     def format_notification_for_display(self, notification):
