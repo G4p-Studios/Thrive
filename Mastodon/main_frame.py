@@ -696,52 +696,44 @@ class ThriveFrame(wx.Frame):
         ntype = notification.get("type")
         account = notification.get("account", {})
         user = account.get("display_name") or account.get("username", "Unknown")
+        status = notification.get("status")
+        
+        def _prepare_content(html):
+            if not html: return ""
+            processed = html.replace('<br />', '\n').replace('<br>', '\n').replace('</p>', '\n\n')
+            return strip_html(processed).strip()
 
-        if ntype == "favourite":
-            status = notification.get("status")
-            if status:
-                if favsnd:
-                    favsnd.play()
-                return f"{user} favourited your post: {strip_html(status['content']).strip()}"
-            return f"{user} favourited one of your posts"
-        elif ntype == "reblog":
-            status = notification.get("status")
-            if status:
-                if boostsnd:
-                    boostsnd.play()
-                return f"{user} boosted your post: {strip_html(status['content']).strip()}"
-            return f"{user} boosted one of your posts"
-        elif ntype == "mention":
-            status = notification.get("status")
-            if status:
-                if mentionsnd:
-                    mentionsnd.play()
-                return f"{user} mentioned you: {strip_html(status['content']).strip()}"
-            return f"{user} mentioned you"
-        elif ntype == "poll":
-            status = notification.get("status")
-            if status and status.get("poll") and status["poll"].get("expired"):
-                if newtootsnd:
-                    newtootsnd.play()
-                return f"Poll ended in {user}'s post: {strip_html(status['content']).strip()}"
-            return f"Poll update from {user}"
-        elif ntype == "update":
-            status = notification.get("status")
-            if status:
-                if newtootsnd:
-                    newtootsnd.play()
-                return f"{user}'s post you interacted with was edited: {strip_html(status['content']).strip()}"
-            return f"{user} edited a post"
+        if ntype == "favourite" and status:
+            if favsnd: favsnd.play()
+            return f"{user} favourited your post: {_prepare_content(status['content'])}"
+        elif ntype == "reblog" and status:
+            if boostsnd: boostsnd.play()
+            return f"{user} boosted your post: {_prepare_content(status['content'])}"
+        elif ntype == "mention" and status:
+            if mentionsnd: mentionsnd.play()
+            return f"{user} mentioned you: {_prepare_content(status['content'])}"
+        elif ntype == "poll" and status and status.get("poll") and status["poll"].get("expired"):
+            if newtootsnd: newtootsnd.play()
+            return f"Poll ended in {user}'s post: {_prepare_content(status['content'])}"
+        elif ntype == "update" and status:
+            if newtootsnd: newtootsnd.play()
+            return f"{user}'s post you interacted with was edited: {_prepare_content(status['content'])}"
         else:
-            return f"{user}: {ntype} (unhandled)"
+            # Fallback for notifications without a status or unhandled types
+            return f"{user}: {ntype}"
 
     def format_status_for_display(self, status):
+        def _prepare_content(html):
+            if not html: return ""
+            processed = html.replace('<br />', '\n').replace('<br>', '\n').replace('</p>', '\n\n')
+            return strip_html(processed).strip()
+
         if status.get("reblog"):
             boost = status["reblog"]
             user = status["account"].get("display_name") or status["account"].get("username")
             original_user = boost["account"].get("display_name") or boost["account"].get("username")
             handle = boost["account"].get("acct", "")
-            content = strip_html(boost.get("content", "")).strip()
+            content = _prepare_content(boost.get("content", ""))
             app = boost.get("application") or {}
             source = app.get("name") if isinstance(app, dict) else "Unknown"
             if boost.get("spoiler_text"):
@@ -752,7 +744,7 @@ class ThriveFrame(wx.Frame):
             return display
         else:
             user = status["account"].get("display_name") or status["account"].get("username")
-            content = strip_html(status.get("content", "")).strip()
+            content = _prepare_content(status.get("content", ""))
             app = status.get("application") or {}
             source = app.get("name") if isinstance(app, dict) else "Unknown"
             if status.get("spoiler_text"):
@@ -772,6 +764,11 @@ class ThriveFrame(wx.Frame):
         source_obj = status['reblog'] if is_boost else status
         # Author column should show the account that posted (the booster)
         author_cell = status['account'].get('display_name') or status['account'].get('username')
+        
+        def _prepare_content(html):
+            if not html: return ""
+            processed = html.replace('<br />', '\n').replace('<br>', '\n').replace('</p>', '\n\n')
+            return strip_html(processed).strip()
 
         # Content column: for boosts include 'boosting Original (handle): <content>'
         if is_boost:
@@ -781,14 +778,14 @@ class ThriveFrame(wx.Frame):
             if source_obj.get('spoiler_text'):
                 content_body = f"CW: {source_obj['spoiler_text']} (press Enter to view)"
             else:
-                content_body = strip_html(source_obj.get('content', '')).strip()
+                content_body = _prepare_content(source_obj.get('content', ''))
             content_cell = f"boosting {original} ({handle}): {content_body}"
         else:
             # prefer spoiler text when present on the normal post
             if status.get('spoiler_text'):
                 content_cell = f"CW: {status['spoiler_text']} (press Enter to view)"
             else:
-                content_cell = strip_html(status.get('content', '')).strip()
+                content_cell = _prepare_content(status.get('content', ''))
         
         if source_obj.get('poll'):
             content_cell += " [Poll]"
@@ -804,10 +801,15 @@ class ThriveFrame(wx.Frame):
         account = notification.get('account', {})
         user = account.get('display_name') or account.get('username') or 'Unknown'
         status = notification.get('status') or {}
+        
+        def _prepare_content(html):
+            if not html: return ""
+            processed = html.replace('<br />', '\n').replace('<br>', '\n').replace('</p>', '\n\n')
+            return strip_html(processed).strip()
 
         time_cell = self.format_time(status.get('created_at')) if status else ''
         client_cell = self.get_app_name(status) if status else ''
-        content = strip_html(status.get('content', '')).strip() if status else ''
+        content = _prepare_content(status.get('content', '')) if status else ''
         if status.get('poll'):
             content += " [Poll]"
 

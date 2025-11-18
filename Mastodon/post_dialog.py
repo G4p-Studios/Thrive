@@ -119,7 +119,9 @@ class PostDetailsDialog(wx.Dialog):
 			self.panel.SetBackgroundColour(self.dark_color)
 			self.SetBackgroundColour(self.dark_color)
 
-		content = strip_html(self.status["content"])
+		content_html = self.status["content"]
+		processed_html = content_html.replace('<br />', '\n').replace('<br>', '\n').replace('</p>', '\n\n')
+		content = strip_html(processed_html)
 		self.reply_users=""
 		me=self.me['acct']
 		for i in content.split(" "):
