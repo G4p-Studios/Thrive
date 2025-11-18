@@ -212,6 +212,14 @@ try:
     select_mentionsnd = stream.FileStream(file=f"sounds/{folder}/mention.wav")
 except BassError:
     select_mentionsnd = None
+try:
+    pollsnd = stream.FileStream(file=f"sounds/{folder}/poll.wav")
+except BassError:
+    pollsnd = None
+try:
+    votesnd = stream.FileStream(file=f"sounds/{folder}/vote.wav")
+except BassError:
+    votesnd = None
 
 # --- Custom Stream Listener ---
 class CustomStreamListener(StreamListener):
@@ -242,6 +250,9 @@ class ThriveFrame(wx.Frame):
         self.timelines_data = {"home": [], "sent": [], "notifications": [], "mentions": []}
         self.privacy_options = ["Public", "Unlisted", "Followers-only", "Direct"]
         self.privacy_values = ["public", "unlisted", "private", "direct"]
+        self.poll_duration_labels = ["5 minutes", "30 minutes", "1 hour", "6 hours", "12 hours", "1 day", "3 days", "7 days"]
+        self.poll_duration_seconds = [300, 1800, 3600, 21600, 43200, 86400, 259200, 604800]
+
 
         # --- UI setup ---
         self.panel = wx.Panel(self)
@@ -283,6 +294,42 @@ class ThriveFrame(wx.Frame):
         self.cw_toggle.Bind(wx.EVT_CHECKBOX, self.on_toggle_cw)
         self.cw_input.Hide()
         self.cw_label.Hide()
+        vbox.Add(self.toot_label, 0, wx.ALL | wx.EXPAND, 5)
+        vbox.Add(self.toot_input, 0, wx.ALL | wx.EXPAND, 5)
+        vbox.Add(self.cw_label, 0, wx.LEFT | wx.RIGHT, 5)
+        vbox.Add(self.cw_input, 0, wx.ALL | wx.EXPAND, 5)
+        vbox.Add(self.cw_toggle, 0, wx.ALL, 5)
+
+        # --- Poll Creation UI ---
+        self.poll_toggle = wx.CheckBox(self.panel, label="Create &Poll")
+        self.poll_toggle.Bind(wx.EVT_CHECKBOX, self.on_toggle_poll)
+        vbox.Add(self.poll_toggle, 0, wx.ALL, 5)
+        
+        self.poll_panel = wx.Panel(self.panel)
+        poll_sizer = wx.StaticBoxSizer(wx.VERTICAL, self.poll_panel, "Poll Options")
+        
+        self.poll_option_inputs = []
+        for i in range(4):
+            opt_label = wx.StaticText(self.poll_panel, label=f"Option {i+1}:")
+            opt_input = wx.TextCtrl(self.poll_panel)
+            self.poll_option_inputs.append(opt_input)
+            poll_sizer.Add(opt_label, 0, wx.LEFT | wx.RIGHT | wx.TOP, 5)
+            poll_sizer.Add(opt_input, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 5)
+        
+        duration_label = wx.StaticText(self.poll_panel, label="Duration:")
+        self.poll_duration_choice = wx.Choice(self.poll_panel, choices=self.poll_duration_labels)
+        self.poll_duration_choice.SetSelection(5) # Default to 1 day
+        
+        self.poll_multiple_choice = wx.CheckBox(self.poll_panel, label="Allow multiple choices")
+        
+        poll_sizer.Add(duration_label, 0, wx.LEFT | wx.RIGHT | wx.TOP, 5)
+        poll_sizer.Add(self.poll_duration_choice, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 5)
+        poll_sizer.Add(self.poll_multiple_choice, 0, wx.ALL, 5)
+
+        self.poll_panel.SetSizer(poll_sizer)
+        vbox.Add(self.poll_panel, 0, wx.EXPAND | wx.ALL, 5)
+        self.poll_panel.Hide()
+        # --- End Poll UI ---
 
         self.privacy_label = wx.StaticText(self.panel, label="P&rivacy:")
         self.privacy_choice = wx.Choice(self.panel, choices=self.privacy_options)
@@ -311,9 +358,16 @@ class ThriveFrame(wx.Frame):
         if is_windows_dark_mode():
             dark_color = wx.Colour(40, 40, 40)
             light_text_color = wx.WHITE
-            for widget in [self.toot_label, self.cw_label, self.cw_toggle, self.privacy_label, self.posts_label]:
+            for widget in [self.toot_label, self.cw_label, self.cw_toggle, self.poll_toggle, self.privacy_label, self.posts_label]:
                 widget.SetForegroundColour(light_text_color)
                 widget.SetBackgroundColour(dark_color)
+            
+            # Dark mode for Poll panel
+            self.poll_panel.SetBackgroundColour(dark_color)
+            poll_sizer.GetStaticBox().SetForegroundColour(light_text_color)
+            for child in self.poll_panel.GetChildren():
+                child.SetBackgroundColour(dark_color)
+                child.SetForegroundColour(light_text_color)
 
             for widget in [self.toot_input, self.cw_input, self.privacy_choice, self.timeline_tree, self.posts_list, self.post_button, self.exit_button]:
                 widget.SetForegroundColour(light_text_color)
@@ -323,11 +377,6 @@ class ThriveFrame(wx.Frame):
         hbox.Add(self.timeline_tree, 0, wx.EXPAND | wx.ALL, 5)
         hbox.Add(self.posts_list, 1, wx.EXPAND | wx.ALL, 5)
 
-        vbox.Add(self.toot_label, 0, wx.ALL | wx.EXPAND, 5)
-        vbox.Add(self.toot_input, 0, wx.ALL | wx.EXPAND, 5)
-        vbox.Add(self.cw_label, 0, wx.LEFT | wx.RIGHT, 5)
-        vbox.Add(self.cw_input, 0, wx.ALL | wx.EXPAND, 5)
-        vbox.Add(self.cw_toggle, 0, wx.ALL, 5)
         vbox.Add(self.privacy_label, 0, wx.LEFT | wx.RIGHT | wx.TOP, 5)
         vbox.Add(self.privacy_choice, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM | wx.EXPAND, 5)
         vbox.Add(self.post_button, 0, wx.ALL | wx.CENTER, 5)
@@ -358,22 +407,56 @@ class ThriveFrame(wx.Frame):
         self.cw_input.Show(show)
         self.cw_label.Show(show)
         self.panel.Layout()
+    
+    def on_toggle_poll(self, event):
+        show = self.poll_toggle.IsChecked()
+        self.poll_panel.Show(show)
+        self.panel.Layout()
 
     def on_post(self, event):
         status_text = self.toot_input.GetValue().strip()
         spoiler = self.cw_input.GetValue().strip() if self.cw_toggle.IsChecked() else None
         visibility = self.privacy_values[self.privacy_choice.GetSelection()]
-        if not status_text:
-            wx.MessageBox("Cannot post empty status.", "Error")
+        
+        poll_data = None
+        if self.poll_toggle.IsChecked():
+            options = [opt.GetValue().strip() for opt in self.poll_option_inputs if opt.GetValue().strip()]
+            if len(options) < 2:
+                wx.MessageBox("A poll must have at least two options.", "Poll Error", wx.OK | wx.ICON_ERROR)
+                return
+            
+            duration_index = self.poll_duration_choice.GetSelection()
+            duration = self.poll_duration_seconds[duration_index]
+            multiple = self.poll_multiple_choice.IsChecked()
+            poll_data = {
+                'options': options,
+                'expires_in': duration,
+                'multiple': multiple
+            }
+
+        if not status_text and not poll_data:
+            wx.MessageBox("Cannot post empty status.", "Error", wx.OK | wx.ICON_ERROR)
             return
+
         try:
-            self.mastodon.status_post(status_text, spoiler_text=spoiler, visibility=visibility)
+            self.mastodon.status_post(status_text, spoiler_text=spoiler, visibility=visibility, poll=poll_data)
             if tootsnd:
                 tootsnd.play()
+            
+            # Reset UI
             self.toot_input.SetValue("")
             self.cw_input.SetValue("")
             self.cw_toggle.SetValue(False)
             self.on_toggle_cw(None)
+
+            if poll_data:
+                self.poll_toggle.SetValue(False)
+                for opt_input in self.poll_option_inputs:
+                    opt_input.SetValue("")
+                self.poll_duration_choice.SetSelection(5)
+                self.poll_multiple_choice.SetValue(False)
+                self.on_toggle_poll(None)
+
         except Exception as e:
             wx.MessageBox(f"Error: {e}", "Post Error")
 
@@ -549,6 +632,11 @@ class ThriveFrame(wx.Frame):
             event.Skip()
             return
         source_status = status.get('reblog') or status
+        if pollsnd and source_status.get('poll'):
+            pollsnd.stop()
+            pollsnd.play()
+            event.Skip()
+            return
         if select_mentionsnd and self.me:
             my_id = self.me.get('id')
             if any(m.get('id') == my_id for m in source_status.get('mentions', [])):
@@ -576,7 +664,7 @@ class ThriveFrame(wx.Frame):
         return EasySettings("thrive.ini")
 
     def load_sounds(self):
-        global tootsnd, replysnd, boostsnd, favsnd, unfavsnd, newtootsnd, dmsnd, mentionsnd, imagesnd, mediasnd, select_mentionsnd
+        global tootsnd, replysnd, boostsnd, favsnd, unfavsnd, newtootsnd, dmsnd, mentionsnd, imagesnd, mediasnd, select_mentionsnd, pollsnd, votesnd
         try:
             soundpack = self.conf().get("soundpack", "default")
             folder = "Mastodon-" + soundpack
@@ -600,6 +688,8 @@ class ThriveFrame(wx.Frame):
         imagesnd = _safe_load(f"sounds/{folder}/image.wav")
         mediasnd = _safe_load(f"sounds/{folder}/media.wav")
         select_mentionsnd = _safe_load(f"sounds/{folder}/mention.wav")
+        pollsnd = _safe_load(f"sounds/{folder}/poll.wav")
+        votesnd = _safe_load(f"sounds/{folder}/vote.wav")
         return True
 
     def format_notification_for_display(self, notification):
@@ -699,6 +789,10 @@ class ThriveFrame(wx.Frame):
                 content_cell = f"CW: {status['spoiler_text']} (press Enter to view)"
             else:
                 content_cell = strip_html(status.get('content', '')).strip()
+        
+        if source_obj.get('poll'):
+            content_cell += " [Poll]"
+
 
         time_cell = self.format_time(source_obj.get('created_at')) or ''
         client_cell = self.get_app_name(source_obj) or ''
@@ -714,6 +808,9 @@ class ThriveFrame(wx.Frame):
         time_cell = self.format_time(status.get('created_at')) if status else ''
         client_cell = self.get_app_name(status) if status else ''
         content = strip_html(status.get('content', '')).strip() if status else ''
+        if status.get('poll'):
+            content += " [Poll]"
+
 
         if ntype == 'favourite':
             return [f"{user} favorited", content, time_cell or '', client_cell or '']
@@ -739,7 +836,7 @@ class ThriveFrame(wx.Frame):
             if not key:
                 return
             status = self.timelines_data[key][selection]
-        dlg = PostDetailsDialog(self, self.mastodon, status, self.me)
+        dlg = PostDetailsDialog(self, self.mastodon, status, self.me, votesnd=votesnd)
         dlg.ShowModal()
         dlg.Destroy()
 

@@ -94,7 +94,7 @@ else:
 	conf = EasySettings("thrive.ini")
 
 class PostDetailsDialog(wx.Dialog):
-	def __init__(self, parent, mastodon, status, me_account):
+	def __init__(self, parent, mastodon, status, me_account, votesnd=None):
 		account = status["account"]
 		display_name = account.get("display_name", "")
 		acct = account.get("acct", "")
@@ -103,6 +103,7 @@ class PostDetailsDialog(wx.Dialog):
 		self.status = status["reblog"] if status.get("reblog") else status
 		self.me = me_account
 		self.account = account
+		self.votesnd = votesnd
 		self.privacy_options = ["Public", "Unlisted", "Followers-only", "Direct"]
 		self.privacy_values = ["public", "unlisted", "private", "direct"]
 		
@@ -153,7 +154,17 @@ Language: {language}"""
 		self.profile_button = wx.Button(self.panel, label=f"View &Profile of {display_name}")
 		self.take_down_button = wx.Button(self.panel, label="&Take down")
 		self.close_button = wx.Button(self.panel, id=wx.ID_CANCEL, label="&Close")
+		
+		sizer = wx.BoxSizer(wx.VERTICAL)
+		sizer.Add(self.content_label, 0, wx.ALL, 5)
+		sizer.Add(self.content_box, 1, wx.ALL | wx.EXPAND, 5)
+		sizer.Add(self.details_label, 0, wx.ALL, 5)
+		sizer.Add(self.details_box, 0, wx.ALL | wx.EXPAND, 5)
 
+		if self.status.get('poll'):
+			poll_sizer = self.create_poll_ui()
+			sizer.Add(poll_sizer, 0, wx.EXPAND | wx.ALL, 5)
+			
 		# --- Apply dark theme to controls if active ---
 		if self.dark_mode_active:
 			for widget in [self.content_label, self.details_label]:
@@ -171,11 +182,6 @@ Language: {language}"""
 		self.take_down_button.Bind(wx.EVT_BUTTON, self.on_take_down)
 		self.profile_button.Bind(wx.EVT_BUTTON, lambda e: ViewProfileDialog(self, self.account).ShowModal())
 
-		sizer = wx.BoxSizer(wx.VERTICAL)
-		sizer.Add(self.content_label, 0, wx.ALL, 5)
-		sizer.Add(self.content_box, 1, wx.ALL | wx.EXPAND, 5)
-		sizer.Add(self.details_label, 0, wx.ALL, 5)
-		sizer.Add(self.details_box, 0, wx.ALL | wx.EXPAND, 5)
 
 		btns = wx.BoxSizer(wx.HORIZONTAL)
 		btns.Add(self.reply_button, 0, wx.ALL, 5)
@@ -196,9 +202,90 @@ Language: {language}"""
 
 		self.setup_accelerators()
 
+	def create_poll_ui(self):
+		poll = self.status['poll']
+		poll_box = wx.StaticBoxSizer(wx.VERTICAL, self.panel, "Poll")
+		
+		show_results = poll.get('voted') or poll.get('expired', False)
+		choices = []
+		for opt in poll.get('options', []):
+			label = opt['title']
+			if show_results:
+				label += f" ({opt.get('votes_count', 0)} votes)"
+			choices.append(label)
+
+		self.poll_radio_box = wx.RadioBox(self.panel, choices=choices, majorDimension=1, style=wx.RA_SPECIFY_COLS)
+		if poll.get('voted'):
+			try:
+				# own_votes contains the index of our vote
+				vote_index = poll['own_votes'][0]
+				self.poll_radio_box.SetSelection(vote_index)
+			except (IndexError, TypeError):
+				pass # No vote found
+		poll_box.Add(self.poll_radio_box, 0, wx.ALL | wx.EXPAND, 5)
+
+		self.vote_button = wx.Button(self.panel, label="&Vote")
+		self.vote_button.Bind(wx.EVT_BUTTON, self.on_vote)
+		if poll.get('voted') or poll.get('expired', False):
+			self.vote_button.Disable()
+		
+		poll_info_text = f"Total votes: {poll.get('votes_count', 0)}"
+		if poll.get('expired'):
+			poll_info_text += " - Poll is closed."
+		self.poll_info_label = wx.StaticText(self.panel, label=poll_info_text)
+
+		poll_box.Add(self.vote_button, 0, wx.ALL, 5)
+		poll_box.Add(self.poll_info_label, 0, wx.ALL, 5)
+
+		if self.dark_mode_active:
+			poll_box.GetStaticBox().SetForegroundColour(self.light_text_color)
+			for widget in [self.poll_radio_box, self.vote_button, self.poll_info_label]:
+				widget.SetBackgroundColour(self.dark_color)
+				widget.SetForegroundColour(self.light_text_color)
+		return poll_box
+
+	def on_vote(self, event):
+		selection = self.poll_radio_box.GetSelection()
+		if selection == wx.NOT_FOUND:
+			wx.MessageBox("Please select an option to vote.", "No Selection", wx.OK | wx.ICON_EXCLAMATION, self)
+			return
+		
+		poll_id = self.status['poll']['id']
+		try:
+			updated_poll = self.mastodon.poll_vote(poll_id, [selection])
+			if self.votesnd:
+				self.votesnd.play()
+
+			self.status['poll'] = updated_poll
+			self.update_poll_ui(updated_poll)
+			wx.MessageBox("Your vote has been cast successfully!", "Vote Cast", wx.OK | wx.ICON_INFORMATION, self)
+		except Exception as e:
+			wx.MessageBox(f"Failed to cast vote: {e}", "Error", wx.OK | wx.ICON_ERROR, self)
+
+	def update_poll_ui(self, poll):
+		self.vote_button.Disable()
+		show_results = poll.get('voted') or poll.get('expired', False)
+		if show_results:
+			for i, opt in enumerate(poll.get('options', [])):
+				label = f"{opt['title']} ({opt.get('votes_count', 0)} votes)"
+				self.poll_radio_box.SetString(i, label)
+		
+		poll_info_text = f"Total votes: {poll.get('votes_count', 0)}"
+		if poll.get('expired'):
+			poll_info_text += " - Poll is closed."
+		self.poll_info_label.SetLabel(poll_info_text)
+		self.panel.Layout()
+
+
 	def setup_accelerators(self):
 		accel_entries = []
 		accel_entries.append((wx.ACCEL_NORMAL, wx.WXK_ESCAPE, wx.ID_CANCEL))
+		
+		if self.status.get('poll') and not (self.status['poll'].get('voted') or self.status['poll'].get('expired')):
+			vote_id = wx.NewIdRef()
+			self.vote_button.SetId(vote_id.GetId())
+			accel_entries.append((wx.ACCEL_ALT, ord('V'), vote_id.GetId()))
+			self.Bind(wx.EVT_MENU, self.on_vote, id=vote_id.GetId())
 		
 		if self.status['account']['id'] == self.me['id']:
 			take_down_id = wx.NewIdRef()
