@@ -117,11 +117,14 @@ class SysListViewAdapter(wx.ListCtrl):
 	"""
 	def __init__(self, parent, *args, **kwargs):
 		super().__init__(parent, style=wx.LC_REPORT | wx.LC_SINGLE_SEL)
+		# Set a comfortable row height using a dummy ImageList
+		self.image_list = wx.ImageList(1, 32)
+		self.AssignImageList(self.image_list, wx.IMAGE_LIST_SMALL)
 		# Columns: Author, Content, Time, Client (reordered)
 		self.InsertColumn(0, "Author", width=180)
-		self.InsertColumn(1, "Content", width=512)
-		self.InsertColumn(2, "Time", width=140)
-		self.InsertColumn(3, "Client", width=140)
+		self.InsertColumn(1, "Content", width=500)
+		self.InsertColumn(2, "Time", width=120)
+		self.InsertColumn(3, "Client", width=120)
 
 	def _normalize_row(self, item):
 		"""Return a 4-element list for columns based on the given item."""
@@ -243,7 +246,7 @@ class CustomStreamListener(StreamListener):
 class ThriveFrame(wx.Frame):
     def __init__(self, *args, **kwargs):
         mastodon = kwargs.pop("mastodon", None)
-        super().__init__(*args, **kwargs, size=(800, 600))
+        super().__init__(*args, **kwargs, size=(1100, 700))
 
         self.mastodon = mastodon
         self.me = self.mastodon.me() if self.mastodon else None

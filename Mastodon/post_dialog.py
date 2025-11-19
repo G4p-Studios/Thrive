@@ -1,5 +1,7 @@
 import wx
 import os
+import re
+import webbrowser
 from utils import strip_html
 from profile_dialog import ViewProfileDialog
 from sound_lib import stream
@@ -93,6 +95,55 @@ if not os.path.exists("thrive.ini"):
 else:
 	conf = EasySettings("thrive.ini")
 
+class LinksDialog(wx.Dialog):
+    """A dialog to display and open links from a post."""
+    def __init__(self, parent, links, dark_mode_active=False, dark_color=None, light_text_color=None):
+        super().__init__(parent, title="Links in Post", size=(500, 300))
+        self.links = links
+        self.panel = wx.Panel(self)
+        
+        if dark_mode_active:
+            dark_mode_manager = WxMswDarkMode()
+            dark_mode_manager.enable(self)
+            self.SetBackgroundColour(dark_color)
+            self.panel.SetBackgroundColour(dark_color)
+
+        sizer = wx.BoxSizer(wx.VERTICAL)
+        
+        self.links_list_box = wx.ListBox(self.panel, choices=self.links, style=wx.LB_SINGLE)
+        sizer.Add(self.links_list_box, 1, wx.EXPAND | wx.ALL, 5)
+
+        btn_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        self.open_button = wx.Button(self.panel, label="&Open Link")
+        self.close_button = wx.Button(self.panel, id=wx.ID_CANCEL, label="&Close")
+        btn_sizer.Add(self.open_button, 0, wx.ALL, 5)
+        btn_sizer.Add(self.close_button, 0, wx.ALL, 5)
+        sizer.Add(btn_sizer, 0, wx.ALIGN_RIGHT | wx.ALL, 5)
+
+        if dark_mode_active:
+            for widget in [self.links_list_box, self.open_button, self.close_button]:
+                widget.SetBackgroundColour(dark_color)
+                widget.SetForegroundColour(light_text_color)
+
+        self.panel.SetSizer(sizer)
+        self.Layout()
+        
+        self.open_button.SetDefault()
+        self.open_button.Bind(wx.EVT_BUTTON, self.on_open)
+        self.links_list_box.Bind(wx.EVT_LISTBOX_DCLICK, self.on_open)
+
+    def on_open(self, event):
+        selection = self.links_list_box.GetSelection()
+        if selection != wx.NOT_FOUND:
+            link = self.links_list_box.GetString(selection)
+            try:
+                webbrowser.open(link)
+                self.Close()
+            except Exception as e:
+                wx.MessageBox(f"Could not open link:\n{link}\n\nError: {e}", "Error", wx.OK | wx.ICON_ERROR, self)
+        else:
+            wx.MessageBox("Please select a link to open.", "No Link Selected", wx.OK | wx.ICON_INFORMATION, self)
+
 class PostDetailsDialog(wx.Dialog):
 	def __init__(self, parent, mastodon, status, me_account, votesnd=None):
 		account = status["account"]
@@ -106,6 +157,28 @@ class PostDetailsDialog(wx.Dialog):
 		self.votesnd = votesnd
 		self.privacy_options = ["Public", "Unlisted", "Followers-only", "Direct"]
 		self.privacy_values = ["public", "unlisted", "private", "direct"]
+		
+		# --- Robust Link Extraction ---
+		HREF_REGEX = re.compile(r'<a\s[^>]*?href="([^"]*)"', re.IGNORECASE)
+		URL_REGEX = re.compile(r'(?:https?://|www\.)[^\s<>"]+')
+
+		# 1. Extract from href attributes first, as they are definitive
+		href_links = HREF_REGEX.findall(self.status["content"])
+		
+		# 2. Then find bare links in the text
+		content_text = strip_html(self.status["content"])
+		bare_links = URL_REGEX.findall(content_text)
+
+		# 3. Combine, deduplicate, and clean
+		raw_links = list(dict.fromkeys(href_links + bare_links))
+		cleaned_links = []
+		for link in raw_links:
+			# Remove common trailing punctuation
+			cleaned_link = link.rstrip('.,;:!?')
+			# Simple validation: must have a dot and not end with one after cleaning
+			if '.' in cleaned_link and not cleaned_link.endswith('.'):
+				cleaned_links.append(cleaned_link)
+		self.links = cleaned_links
 		
 		self.panel = wx.Panel(self)
 		
@@ -153,10 +226,14 @@ Language: {language}"""
 		self.reply_button = wx.Button(self.panel, label="&Reply")
 		self.boost_button = wx.Button(self.panel, label="Un&boost" if self.status["reblogged"] else "&Boost")
 		self.fav_button = wx.Button(self.panel, label="Un&favourite" if self.status["favourited"] else "&Favourite")
+		self.links_button = wx.Button(self.panel, label="View &Links")
 		self.profile_button = wx.Button(self.panel, label=f"View &Profile of {display_name}")
 		self.take_down_button = wx.Button(self.panel, label="&Take down")
 		self.close_button = wx.Button(self.panel, id=wx.ID_CANCEL, label="&Close")
-		
+
+		if not self.links:
+			self.links_button.Disable()
+			
 		sizer = wx.BoxSizer(wx.VERTICAL)
 		sizer.Add(self.content_label, 0, wx.ALL, 5)
 		sizer.Add(self.content_box, 1, wx.ALL | wx.EXPAND, 5)
@@ -174,13 +251,14 @@ Language: {language}"""
 			for widget in [self.content_box, self.details_box]:
 				widget.SetBackgroundColour(self.dark_color)
 				widget.SetForegroundColour(self.light_text_color)
-			for btn in [self.reply_button, self.boost_button, self.fav_button, self.profile_button, self.take_down_button, self.close_button]:
+			for btn in [self.reply_button, self.boost_button, self.fav_button, self.links_button, self.profile_button, self.take_down_button, self.close_button]:
 				btn.SetBackgroundColour(self.dark_color)
 				btn.SetForegroundColour(self.light_text_color)
 			
 		self.reply_button.Bind(wx.EVT_BUTTON, self.reply)
 		self.boost_button.Bind(wx.EVT_BUTTON, self.toggle_boost)
 		self.fav_button.Bind(wx.EVT_BUTTON, self.toggle_fav)
+		self.links_button.Bind(wx.EVT_BUTTON, self.on_view_links)
 		self.take_down_button.Bind(wx.EVT_BUTTON, self.on_take_down)
 		self.profile_button.Bind(wx.EVT_BUTTON, lambda e: ViewProfileDialog(self, self.account).ShowModal())
 
@@ -189,6 +267,7 @@ Language: {language}"""
 		btns.Add(self.reply_button, 0, wx.ALL, 5)
 		btns.Add(self.boost_button, 0, wx.ALL, 5)
 		btns.Add(self.fav_button, 0, wx.ALL, 5)
+		btns.Add(self.links_button, 0, wx.ALL, 5)
 		if self.status['account']['id'] == self.me['id']:
 			btns.Add(self.take_down_button, 0, wx.ALL, 5)
 		btns.AddStretchSpacer()
@@ -204,6 +283,13 @@ Language: {language}"""
 
 		self.setup_accelerators()
 
+	def on_view_links(self, event):
+		if not self.links:
+			return
+		dlg = LinksDialog(self, self.links, self.dark_mode_active, self.dark_color, self.light_text_color)
+		dlg.ShowModal()
+		dlg.Destroy()
+		
 	def create_poll_ui(self):
 		poll = self.status['poll']
 		poll_box = wx.StaticBoxSizer(wx.VERTICAL, self.panel, "Poll")
@@ -289,6 +375,12 @@ Language: {language}"""
 			accel_entries.append((wx.ACCEL_ALT, ord('V'), vote_id.GetId()))
 			self.Bind(wx.EVT_MENU, self.on_vote, id=vote_id.GetId())
 		
+		if self.links:
+			links_id = wx.NewIdRef()
+			self.links_button.SetId(links_id.GetId())
+			accel_entries.append((wx.ACCEL_ALT, ord('L'), links_id.GetId()))
+			self.Bind(wx.EVT_MENU, self.on_view_links, id=links_id.GetId())
+
 		if self.status['account']['id'] == self.me['id']:
 			take_down_id = wx.NewIdRef()
 			self.take_down_button.SetId(take_down_id.GetId())
