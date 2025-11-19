@@ -118,13 +118,13 @@ class SysListViewAdapter(wx.ListCtrl):
 	def __init__(self, parent, *args, **kwargs):
 		super().__init__(parent, style=wx.LC_REPORT | wx.LC_SINGLE_SEL)
 		# Set a comfortable row height using a dummy ImageList
-		self.image_list = wx.ImageList(1, 32)
+		self.image_list = wx.ImageList(1, 48)
 		self.AssignImageList(self.image_list, wx.IMAGE_LIST_SMALL)
 		# Columns: Author, Content, Time, Client (reordered)
 		self.InsertColumn(0, "Author", width=180)
-		self.InsertColumn(1, "Content", width=500)
-		self.InsertColumn(2, "Time", width=120)
-		self.InsertColumn(3, "Client", width=120)
+		self.InsertColumn(1, "Content", width=640)
+		self.InsertColumn(2, "Time", width=140)
+		self.InsertColumn(3, "Client", width=140)
 
 	def _normalize_row(self, item):
 		"""Return a 4-element list for columns based on the given item."""
@@ -356,6 +356,7 @@ class ThriveFrame(wx.Frame):
         # Use the SysListViewAdapter (wx.ListCtrl) so screen readers see a table
         self.posts_list = SysListViewAdapter(self.panel)
         self.posts_list.Bind(wx.EVT_LIST_ITEM_SELECTED, self.on_post_selected)
+        self.posts_list.Bind(wx.EVT_LIST_ITEM_ACTIVATED, self.on_post_activated)
 
         # Apply dark mode colors to widgets if enabled
         if is_windows_dark_mode():
@@ -416,6 +417,9 @@ class ThriveFrame(wx.Frame):
         self.poll_panel.Show(show)
         self.panel.Layout()
 
+    def on_post_activated(self, event):
+        self.show_post_details()
+
     def on_post(self, event):
         status_text = self.toot_input.GetValue().strip()
         spoiler = self.cw_input.GetValue().strip() if self.cw_toggle.IsChecked() else None
@@ -465,9 +469,7 @@ class ThriveFrame(wx.Frame):
 
     def on_key_press(self, event):
         mods = event.HasAnyModifiers()
-        if event.GetKeyCode() == wx.WXK_RETURN and self.FindFocus() == self.posts_list:
-            self.show_post_details()
-        elif event.GetKeyCode() == wx.WXK_DELETE and self.FindFocus() == self.posts_list:
+        if event.GetKeyCode() == wx.WXK_DELETE and self.FindFocus() == self.posts_list:
             self.delete_selected_post()
         elif event.GetKeyCode() == wx.WXK_RETURN and self.FindFocus() == self.toot_input and mods:
             self.on_post(event)
