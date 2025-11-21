@@ -414,7 +414,6 @@ Language: {language}"""
 		send_button = wx.Button(panel, label="&Post")
 		cancel_button = wx.Button(panel, id=wx.ID_CANCEL, label="&Cancel")
 		
-		# --- Apply dark theme to reply dialog if active ---
 		if self.dark_mode_active:
 			dark_mode_manager = WxMswDarkMode()
 			dark_mode_manager.enable(dialog)
