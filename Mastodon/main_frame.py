@@ -10,6 +10,9 @@ from sound_lib import stream
 from sound_lib.main import BassError
 from easysettings import EasySettings
 import re
+import queue
+import io
+import urllib.request
 
 # --- Dark Mode for MSW ---
 try:
@@ -62,10 +65,7 @@ class UserSelectionDialog(wx.Dialog):
         self.accounts = accounts
         self.selected_account = None
 
-        # The main sizer for the dialog itself
         vbox = wx.BoxSizer(wx.VERTICAL)
-
-        # Create widgets with the dialog 'self' as the parent
         choices = []
         for acc in self.accounts:
             display_name = acc.get('display_name') or acc.get('username', 'Unknown')
@@ -75,14 +75,12 @@ class UserSelectionDialog(wx.Dialog):
         self.user_list = wx.ListBox(self, choices=choices, style=wx.LB_SINGLE)
         vbox.Add(self.user_list, 1, wx.EXPAND | wx.ALL, 10)
 
-        # This creates buttons whose parent is 'self' (the dialog)
         btn_sizer = self.CreateStdDialogButtonSizer(wx.OK | wx.CANCEL)
         ok_button = self.FindWindowById(wx.ID_OK)
         if ok_button:
             ok_button.SetLabel("&View")
         vbox.Add(btn_sizer, 0, wx.ALIGN_RIGHT | wx.ALL, 10)
 
-        # Set the sizer for the dialog itself, not a child panel
         self.SetSizer(vbox)
         self.SetMinSize((450, 300))
         self.CentreOnParent()
@@ -117,7 +115,6 @@ class UserSelectionDialog(wx.Dialog):
     def get_selected_account(self):
         return self.selected_account
 
-# --- Main Frame and other classes follow ---
 _SINGULAR_RE = re.compile(r"\b1 (\w+)s( ago)?\b")
 
 def singularize_time(text):
@@ -131,8 +128,15 @@ def formatted_time(created_at):
 class SysListViewAdapter(wx.ListCtrl):
 	def __init__(self, parent, *args, **kwargs):
 		super().__init__(parent, style=wx.LC_REPORT | wx.LC_SINGLE_SEL)
-		self.image_list = wx.ImageList(1, 48)
+		self.image_list = wx.ImageList(48, 48)
+		empty_bitmap = wx.Bitmap(48, 48)
+		empty_bitmap.SetMaskColour(wx.BLACK)
+		self.image_list.Add(empty_bitmap)
 		self.AssignImageList(self.image_list, wx.IMAGE_LIST_SMALL)
+		
+		self.avatar_map = {}
+		self.item_avatar_map = {}
+		
 		self.InsertColumn(0, "Author", width=180)
 		self.InsertColumn(1, "Content", width=640)
 		self.InsertColumn(2, "Time", width=140)
@@ -145,31 +149,62 @@ class SysListViewAdapter(wx.ListCtrl):
 			return cols[:4]
 		return ["", str(item), "", ""]
 
-	def _insert_row(self, idx, cols):
-		self.InsertItem(idx, cols[0])
+	def _insert_row(self, idx, cols, avatar_url=None):
+		image_idx = self.avatar_map.get(avatar_url, 0)
+		self.InsertItem(idx, cols[0], image_idx)
 		for c in range(1, 4): self.SetItem(idx, c, cols[c])
+		if avatar_url:
+			self.item_avatar_map[idx] = avatar_url
 
-	def Append(self, item):
+	def Append(self, item, avatar_url=None):
 		idx = self.GetItemCount()
-		self._insert_row(idx, self._normalize_row(item))
+		self._insert_row(idx, self._normalize_row(item), avatar_url)
 		return idx
 
-	def Insert(self, item, pos=0): self._insert_row(pos, self._normalize_row(item))
-	def Clear(self): self.DeleteAllItems()
-	def Delete(self, index): self.DeleteItem(index)
-	def SetString(self, index, item):
+	def Insert(self, item, pos=0, avatar_url=None):
+		self._insert_row(pos, self._normalize_row(item), avatar_url)
+
+	def Clear(self):
+		self.DeleteAllItems()
+		self.item_avatar_map.clear()
+
+	def Delete(self, index):
+		self.DeleteItem(index)
+		new_map = {}
+		for i in range(self.GetItemCount()):
+			if i in self.item_avatar_map:
+				new_map[i] = self.item_avatar_map.get(i)
+		self.item_avatar_map = new_map
+		
+	def SetString(self, index, item, avatar_url=None):
 		cols = self._normalize_row(item)
-		for c in range(4): self.SetItem(index, c, cols[c])
+		image_idx = self.avatar_map.get(avatar_url, 0)
+		self.SetItem(index, 0, cols[0], image_idx)
+		for c in range(1, 4): self.SetItem(index, c, cols[c])
+		if avatar_url:
+			self.item_avatar_map[index] = avatar_url
+
 	def GetSelection(self):
 		sel = self.GetFirstSelected()
 		return sel if sel != -1 else wx.NOT_FOUND
+
+	def update_avatars_for_url(self, url, bitmap):
+		if url in self.avatar_map:
+			return
+		
+		image_idx = self.image_list.Add(bitmap)
+		self.avatar_map[url] = image_idx
+
+		for idx, item_url in self.item_avatar_map.items():
+			if item_url == url:
+				self.SetItemImage(idx, image_idx)
 
 sound_files = {
     "tootsnd": "send_toot.wav", "replysnd": "send_reply.wav", "boostsnd": "send_boost.wav",
     "favsnd": "favorite.wav", "unfavsnd": "unfavorite.wav", "newtootsnd": "new_toot.wav",
     "dmsnd": "new_dm.wav", "mentionsnd": "new_mention.wav", "imagesnd": "image.wav",
     "mediasnd": "media.wav", "select_mentionsnd": "mention.wav", "pollsnd": "poll.wav",
-    "votesnd": "vote.wav"
+    "votesnd": "vote.wav", "notificationsnd": "new_notification.wav"
 }
 for name in sound_files: globals()[name] = None
 
@@ -181,9 +216,13 @@ def load_sounds_globally():
         for name, filename in sound_files.items():
             try:
                 globals()[name] = stream.FileStream(file=f"{folder}/{filename}")
-            except BassError:
+            except BassError as e:
+                print(f"BASS error loading sound '{filename}': {e}")
                 globals()[name] = None
-    except Exception: pass
+    except Exception as e:
+        print(f"General error loading sounds: {e}")
+        wx.MessageBox(f"An error occurred while loading sounds: {e}\n\nPlease check your 'sounds' directory and configuration.", "Sound Loading Error", wx.OK | wx.ICON_ERROR)
+
 load_sounds_globally()
 
 class CustomStreamListener(StreamListener):
@@ -207,6 +246,12 @@ class ThriveFrame(wx.Frame):
         self.privacy_values = ["public", "unlisted", "private", "direct"]
         self.poll_duration_labels = ["5 minutes", "30 minutes", "1 hour", "6 hours", "12 hours", "1 day", "3 days", "7 days"]
         self.poll_duration_seconds = [300, 1800, 3600, 21600, 43200, 86400, 259200, 604800]
+        self.show_avatars = False
+        
+        self.image_cache = {}
+        self.image_download_queue = queue.Queue()
+        self.pending_downloads = set()
+        threading.Thread(target=self.image_downloader_worker, daemon=True).start()
 
         self.panel = wx.Panel(self)
         if is_windows_dark_mode():
@@ -225,6 +270,9 @@ class ThriveFrame(wx.Frame):
         view_menu = wx.Menu()
         refresh_item = view_menu.Append(wx.ID_REFRESH, "&Refresh	F5", "Reload current timeline")
         self.Bind(wx.EVT_MENU, self.on_refresh, refresh_item)
+        view_menu.AppendSeparator()
+        self.show_avatars_item = view_menu.Append(wx.ID_ANY, "Show Profile Pictures", "Toggle display of profile pictures", kind=wx.ITEM_CHECK)
+        self.Bind(wx.EVT_MENU, self.on_toggle_show_avatars, self.show_avatars_item)
         menubar.Append(view_menu, "&View")
         self.SetMenuBar(menubar)
 
@@ -247,27 +295,34 @@ class ThriveFrame(wx.Frame):
         self.poll_toggle.Bind(wx.EVT_CHECKBOX, self.on_toggle_poll)
         vbox.Add(self.poll_toggle, 0, wx.ALL, 5)
         
-        self.poll_panel = wx.Panel(self.panel)
-        poll_sizer = wx.StaticBoxSizer(wx.VERTICAL, self.poll_panel, "Poll Options")
-        
+        # --- Poll UI Refactor to fix Parent Assertion ---
+        self.poll_sizer = wx.StaticBoxSizer(wx.VERTICAL, self.panel, "Poll Options")
+        self.poll_widgets = []
+
         self.poll_option_inputs = []
         for i in range(4):
-            opt_label = wx.StaticText(self.poll_panel, label=f"Option {i+1}:")
-            opt_input = wx.TextCtrl(self.poll_panel)
+            opt_label = wx.StaticText(self.panel, label=f"Option {i+1}:")
+            opt_input = wx.TextCtrl(self.panel)
             self.poll_option_inputs.append(opt_input)
-            poll_sizer.Add(opt_label, 0, wx.LEFT | wx.RIGHT | wx.TOP, 5)
-            poll_sizer.Add(opt_input, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 5)
-        
-        duration_label = wx.StaticText(self.poll_panel, label="Duration:")
-        self.poll_duration_choice = wx.Choice(self.poll_panel, choices=self.poll_duration_labels)
+            self.poll_sizer.Add(opt_label, 0, wx.LEFT | wx.RIGHT | wx.TOP, 5)
+            self.poll_sizer.Add(opt_input, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 5)
+            self.poll_widgets.extend([opt_label, opt_input])
+
+        duration_label = wx.StaticText(self.panel, label="Duration:")
+        self.poll_duration_choice = wx.Choice(self.panel, choices=self.poll_duration_labels)
         self.poll_duration_choice.SetSelection(5)
-        self.poll_multiple_choice = wx.CheckBox(self.poll_panel, label="Allow multiple choices")
-        poll_sizer.Add(duration_label, 0, wx.LEFT | wx.RIGHT | wx.TOP, 5)
-        poll_sizer.Add(self.poll_duration_choice, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 5)
-        poll_sizer.Add(self.poll_multiple_choice, 0, wx.ALL, 5)
-        self.poll_panel.SetSizer(poll_sizer)
-        vbox.Add(self.poll_panel, 0, wx.EXPAND | wx.ALL, 5)
-        self.poll_panel.Hide()
+        self.poll_multiple_choice = wx.CheckBox(self.panel, label="Allow multiple choices")
+
+        self.poll_sizer.Add(duration_label, 0, wx.LEFT | wx.RIGHT | wx.TOP, 5)
+        self.poll_sizer.Add(self.poll_duration_choice, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 5)
+        self.poll_sizer.Add(self.poll_multiple_choice, 0, wx.ALL, 5)
+        self.poll_widgets.extend([duration_label, self.poll_duration_choice, self.poll_multiple_choice])
+
+        vbox.Add(self.poll_sizer, 0, wx.EXPAND | wx.ALL, 5)
+
+        for widget in self.poll_widgets:
+            widget.Hide()
+        self.poll_sizer.Show(False)
 
         self.privacy_label = wx.StaticText(self.panel, label="P&rivacy:")
         self.privacy_choice = wx.Choice(self.panel, choices=self.privacy_options)
@@ -296,10 +351,11 @@ class ThriveFrame(wx.Frame):
         if is_windows_dark_mode():
             dark_color = wx.Colour(40, 40, 40)
             light_text_color = wx.WHITE
-            for widget in [self.toot_label, self.cw_label, self.cw_toggle, self.poll_toggle, self.privacy_label, self.posts_label, *self.poll_panel.GetChildren()]:
+            # Updated to include self.poll_widgets
+            for widget in [self.toot_label, self.cw_label, self.cw_toggle, self.poll_toggle, self.privacy_label, self.posts_label, *self.poll_widgets]:
                 widget.SetForegroundColour(light_text_color)
                 widget.SetBackgroundColour(dark_color)
-            poll_sizer.GetStaticBox().SetForegroundColour(light_text_color)
+            self.poll_sizer.GetStaticBox().SetForegroundColour(light_text_color)
             for widget in [self.toot_input, self.cw_input, self.privacy_choice, self.timeline_tree, self.posts_list, self.post_button, self.exit_button]:
                 widget.SetForegroundColour(light_text_color)
                 widget.SetBackgroundColour(dark_color)
@@ -316,11 +372,50 @@ class ThriveFrame(wx.Frame):
         self.panel.SetSizer(vbox)
         self.Bind(wx.EVT_CHAR_HOOK, self.on_key_press)
         self.setup_accelerators()
+        
         self.timeline_tree.SelectItem(self.timeline_nodes["home"])
-        self.load_timeline("home")
-        for key in ["sent", "notifications", "mentions"]:
+        for key in ["home", "sent", "notifications", "mentions"]:
             threading.Thread(target=lambda k=key: self.load_timeline(k), daemon=True).start()
+
         self.start_streaming()
+
+    def image_downloader_worker(self):
+        while True:
+            url = self.image_download_queue.get()
+            if url is None:
+                break
+            
+            bitmap = None
+            try:
+                with urllib.request.urlopen(url) as response:
+                    image_data = response.read()
+                
+                stream = io.BytesIO(image_data)
+                image = wx.Image(stream)
+                image.Rescale(48, 48, wx.IMAGE_QUALITY_HIGH)
+                bitmap = wx.Bitmap(image)
+            except Exception as e:
+                print(f"Failed to download image {url}: {e}")
+            
+            wx.CallAfter(self.on_image_downloaded, url, bitmap)
+            self.image_download_queue.task_done()
+            self.pending_downloads.remove(url)
+
+    def on_image_downloaded(self, url, bitmap):
+        if bitmap:
+            self.image_cache[url] = bitmap
+            self.posts_list.update_avatars_for_url(url, bitmap)
+        else:
+            self.image_cache[url] = None
+
+    def queue_avatar_download(self, url):
+        if self.show_avatars and url and url not in self.image_cache and url not in self.pending_downloads:
+            self.pending_downloads.add(url)
+            self.image_download_queue.put(url)
+
+    def on_toggle_show_avatars(self, event):
+        self.show_avatars = self.show_avatars_item.IsChecked()
+        self.on_refresh(event)
 
     def get_selected_status(self):
         selection = self.posts_list.GetSelection()
@@ -433,7 +528,6 @@ class ThriveFrame(wx.Frame):
     def on_view_profile(self, event):
         status, _ = self.get_selected_status()
         if not status: return
-
         unique_accounts = {}
         actor_account = status.get('account')
         if actor_account: unique_accounts[actor_account['id']] = actor_account
@@ -444,15 +538,10 @@ class ThriveFrame(wx.Frame):
         
         for mention in source_status.get('mentions', []): unique_accounts[mention['id']] = mention
         
-        accounts_list = sorted(
-            list(unique_accounts.values()), 
-            key=lambda acc: (acc.get('display_name') or acc.get('username', '')).lower()
-        )
+        accounts_list = sorted(list(unique_accounts.values()), key=lambda acc: (acc.get('display_name') or acc.get('username', '')).lower())
         
-        account_to_view = None
-        if len(accounts_list) <= 1:
-            if accounts_list: account_to_view = accounts_list[0]
-        else:
+        account_to_view = accounts_list[0] if len(accounts_list) == 1 else None
+        if not account_to_view and len(accounts_list) > 1:
             dlg = UserSelectionDialog(self, accounts_list)
             if dlg.ShowModal() == wx.ID_OK:
                 account_to_view = dlg.get_selected_account()
@@ -469,8 +558,10 @@ class ThriveFrame(wx.Frame):
         if key == "notifications": self.load_timeline(key)
         else:
             self.timelines_data[key][index] = status
-            row = self.row_from_status(status)
-            if row: self.posts_list.SetString(index, row)
+            row, avatar_url = self.row_from_status(status)
+            if row: 
+                self.posts_list.SetString(index, row, avatar_url)
+                self.queue_avatar_download(avatar_url)
 
     def open_settings(self, event):
         dlg = SettingsDialog(self, on_save_callback=self.load_sounds)
@@ -485,7 +576,9 @@ class ThriveFrame(wx.Frame):
     
     def on_toggle_poll(self, event):
         show = self.poll_toggle.IsChecked()
-        self.poll_panel.Show(show)
+        for widget in self.poll_widgets:
+            widget.Show(show)
+        self.poll_sizer.Show(show)
         self.panel.Layout()
 
     def on_post_activated(self, event): self.show_post_details()
@@ -528,25 +621,43 @@ class ThriveFrame(wx.Frame):
         threading.Thread(target=self.mastodon.stream_user, args=(CustomStreamListener(self),), daemon=True).start()
 
     def add_new_post(self, status):
-        if status.get("visibility") == "direct": dmsnd and dmsnd.play()
-        elif self.me and status.get("account", {}).get("id") != self.me.get("id"): newtootsnd and newtootsnd.play()
+        if not self.me or status.get("account", {}).get("id") == self.me.get("id"): pass
+        else:
+            is_mention_of_me = any(m.get('id') == self.me.get('id') for m in (status.get('reblog') or status).get('mentions', []))
+            if is_mention_of_me: pass
+            elif status.get("visibility") == "direct": dmsnd and dmsnd.play()
+            else: newtootsnd and newtootsnd.play()
+        
         self.timelines_data["home"].insert(0, status)
         if self.timeline_tree.GetSelection() == self.timeline_nodes["home"]:
-            row = self.row_from_status(status)
-            if row: self.posts_list.Insert(row, 0)
+            row, avatar_url = self.row_from_status(status)
+            if row: 
+                self.posts_list.Insert(row, 0, avatar_url)
+                self.queue_avatar_download(avatar_url)
 
     def add_notification(self, notification):
+        ntype = notification.get("type")
+        if ntype in ["favourite", "reblog", "follow", "follow_request"]:
+            notificationsnd and notificationsnd.play()
+        elif ntype == "mention":
+            mentionsnd and mentionsnd.play()
+        
         self.timelines_data["notifications"].insert(0, notification)
         if self.timeline_tree.GetSelection() == self.timeline_nodes["notifications"]:
-            row = self.row_from_notification(notification)
-            if row: self.posts_list.Insert(row, 0)
+            row, avatar_url = self.row_from_notification(notification)
+            if row: 
+                self.posts_list.Insert(row, 0, avatar_url)
+                self.queue_avatar_download(avatar_url)
 
     def handle_status_update(self, status):
         for timeline in ["home", "sent", "mentions"]:
             for i, s in enumerate(self.timelines_data.get(timeline, [])):
                 if s.get("id") == status.get("id"):
                     self.timelines_data[timeline][i] = status
-                    if self.timeline_tree.GetSelection() == self.timeline_nodes.get(timeline): self.posts_list.SetString(i, self.row_from_status(status))
+                    if self.timeline_tree.GetSelection() == self.timeline_nodes.get(timeline):
+                        row, avatar_url = self.row_from_status(status)
+                        self.posts_list.SetString(i, row, avatar_url)
+                        self.queue_avatar_download(avatar_url)
                     break
 
     def handle_post_deletion(self, status_id):
@@ -554,7 +665,8 @@ class ThriveFrame(wx.Frame):
             for i, s in enumerate(self.timelines_data.get(timeline, [])):
                 if s.get("id") == status_id:
                     self.timelines_data[timeline].pop(i)
-                    if self.timeline_tree.GetSelection() == self.timeline_nodes.get(timeline): self.posts_list.Delete(i)
+                    if self.timeline_tree.GetSelection() == self.timeline_nodes.get(timeline): 
+                        self.posts_list.Delete(i)
                     break
 
     def load_timeline(self, timeline):
@@ -564,19 +676,29 @@ class ThriveFrame(wx.Frame):
             elif timeline == "sent": data = [s for s in self.mastodon.account_statuses(self.me["id"], limit=40) if not s.get("reblog")]
             elif timeline == "notifications": data = self.mastodon.notifications(limit=40)
             elif timeline == "mentions": data = [n["status"] for n in self.mastodon.notifications(types=["mention"], limit=40) if n.get("status")]
+            else: data = []
+            
             self.timelines_data[timeline] = data
-            for item in data:
-                row = self.row_from_notification(item) if timeline == "notifications" else self.row_from_status(item)
-                if row: wx.CallAfter(self.posts_list.Append, row)
-        except Exception as e: wx.MessageBox(f"Failed to load timeline: {e}", "Error")
+            
+            if self.timeline_tree.GetSelection() == self.timeline_nodes.get(timeline):
+                for item in data:
+                    row, avatar_url = (self.row_from_notification(item) if timeline == "notifications" else self.row_from_status(item))
+                    if row: 
+                        wx.CallAfter(self.posts_list.Append, row, avatar_url)
+                        self.queue_avatar_download(avatar_url)
+
+        except Exception as e: 
+            wx.MessageBox(f"Failed to load timeline: {e}", "Error")
 
     def on_timeline_selected(self, event):
         for key, node in self.timeline_nodes.items():
             if event.GetItem() == node:
                 self.posts_list.Clear()
                 for item in self.timelines_data.get(key, []):
-                    row = self.row_from_notification(item) if key == "notifications" else self.row_from_status(item)
-                    if row: self.posts_list.Append(row)
+                    row, avatar_url = (self.row_from_notification(item) if key == "notifications" else self.row_from_status(item))
+                    if row: 
+                        self.posts_list.Append(row, avatar_url)
+                        self.queue_avatar_download(avatar_url)
                 break
 
     def on_refresh(self, event):
@@ -604,42 +726,53 @@ class ThriveFrame(wx.Frame):
         user = account.get("display_name") or account.get("username", "Unknown")
         status = notification.get("status")
         content = strip_html((status['content'] or '').replace('<br />', '\n').replace('<br>', '\n').replace('</p>', '\n\n')).strip()
-        if ntype == "favourite" and status: favsnd and favsnd.play(); return f"{user} favourited your post: {content}"
-        if ntype == "reblog" and status: boostsnd and boostsnd.play(); return f"{user} boosted your post: {content}"
-        if ntype == "mention" and status: mentionsnd and mentionsnd.play(); return f"{user} mentioned you: {content}"
-        if ntype == "poll" and status and status.get("poll", {}).get("expired"): newtootsnd and newtootsnd.play(); return f"Poll ended in {user}'s post: {content}"
-        if ntype == "update" and status: newtootsnd and newtootsnd.play(); return f"{user}'s post you interacted with was edited: {content}"
+        
+        if ntype == "favourite" and status: return f"{user} favourited your post: {content}"
+        if ntype == "reblog" and status: return f"{user} boosted your post: {content}"
+        if ntype == "mention" and status: return f"{user} mentioned you: {content}"
+        if ntype == "follow": return f"{user} followed you."
+        if ntype == "follow_request": return f"{user} requested to follow you."
+        if ntype == "poll" and status and status.get("poll", {}).get("expired"): return f"Poll ended in {user}'s post: {content}"
+        if ntype == "update" and status: return f"{user}'s post you interacted with was edited: {content}"
         return f"{user}: {ntype}"
 
     def row_from_status(self, status):
-        if not status: return None
+        if not status: return None, None
         is_boost = bool(status.get('reblog'))
         source_obj = status['reblog'] if is_boost else status
-        author_cell = status['account'].get('display_name') or status['account'].get('username')
+        account = status['account']
+        avatar_url = account.get('avatar_static') if self.show_avatars else None
+        author_cell = account.get('display_name') or account.get('username')
         content = strip_html((source_obj.get('content', '') or '').replace('<br />', '\n').replace('<br>', '\n').replace('</p>', '\n\n')).strip()
+        
         if is_boost:
-            original = source_obj['account'].get('display_name') or source_obj['account'].get('username')
-            handle = source_obj['account'].get('acct', '')
+            original_author = source_obj['account']
+            original_display = original_author.get('display_name') or original_author.get('username')
+            original_handle = original_author.get('acct', '')
             content_body = f"CW: {source_obj['spoiler_text']}" if source_obj.get('spoiler_text') else content
-            content_cell = f"boosting {original} ({handle}): {content_body}"
+            content_cell = f"boosting {original_display} (@{original_handle}): {content_body}"
         else:
             content_cell = f"CW: {status['spoiler_text']}" if status.get('spoiler_text') else content
+            
         if source_obj.get('poll'): content_cell += " [Poll]"
         time_cell = self.format_time(source_obj.get('created_at')) or ''
         client_cell = self.get_app_name(source_obj) or ''
-        return [author_cell or '', content_cell or '', time_cell, client_cell]
+        
+        return [author_cell or '', content_cell or '', time_cell, client_cell], avatar_url
 
     def row_from_notification(self, notification):
-        ntype, account, status = notification.get('type'), notification.get('account', {}), notification.get('status') or {}
-        user = account.get('display_name') or account.get('username') or 'Unknown'
-        content = strip_html((status.get('content', '') or '').replace('<br />', '\n').replace('<br>', '\n').replace('</p>', '\n\n')).strip()
-        if status.get('poll'): content += " [Poll]"
-        time_cell = self.format_time(status.get('created_at')) if status else ''
-        client_cell = self.get_app_name(status) if status else ''
-        if ntype == 'favourite': return [f"{user} favorited", content, time_cell, client_cell]
-        if ntype == 'reblog': return [f"{user} boosted", content, time_cell, client_cell]
-        if ntype == 'mention': return [f"{user} mentioned you", content, time_cell, client_cell]
-        return [f"{user}: {ntype}", '', '', '']
+        account = notification.get('account', {})
+        avatar_url = account.get('avatar_static') if self.show_avatars else None
+        display_text = self.format_notification_for_display(notification)
+        status = notification.get('status') or {}
+        time_cell = self.format_time(notification.get('created_at'))
+        client_cell = self.get_app_name(status)
+        
+        parts = display_text.split(':', 1)
+        author_part = parts[0]
+        content_part = parts[1].strip() if len(parts) > 1 else ''
+
+        return [author_part, content_part, time_cell, client_cell], avatar_url
 
     def show_post_details(self):
         status, _ = self.get_selected_status()
