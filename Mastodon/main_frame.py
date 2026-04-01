@@ -382,6 +382,10 @@ class ThriveFrame(wx.Frame):
         self.poll_sizer.Show(False)
 
         # Media attachment UI
+        self.media_toggle = wx.CheckBox(self.panel, label="Add M&edia")
+        self.media_toggle.Bind(wx.EVT_CHECKBOX, self.on_toggle_media)
+        vbox.Add(self.media_toggle, 0, wx.ALL, 5)
+
         self.media_sizer = wx.StaticBoxSizer(wx.VERTICAL, self.panel, "Media Attachments")
         self.media_files = []
         self.media_list = wx.ListBox(self.panel, style=wx.LB_SINGLE, size=(-1, 60))
@@ -404,6 +408,10 @@ class ThriveFrame(wx.Frame):
         self.alt_text_input.Bind(wx.EVT_TEXT, self.on_alt_text_changed)
         
         vbox.Add(self.media_sizer, 0, wx.EXPAND | wx.ALL, 5)
+
+        for widget in self.media_widgets:
+            widget.Hide()
+        self.media_sizer.Show(False)
 
         self.privacy_label = wx.StaticText(self.panel, label="P&rivacy:")
         self.privacy_choice = wx.Choice(self.panel, choices=self.privacy_options)
@@ -438,7 +446,7 @@ class ThriveFrame(wx.Frame):
             dark_color = wx.Colour(40, 40, 40)
             light_text_color = wx.WHITE
             # Updated to include self.poll_widgets
-            for widget in [self.toot_label, self.cw_label, self.cw_toggle, self.poll_toggle, self.privacy_label, self.posts_label, *self.poll_widgets, self.alt_text_label]:
+            for widget in [self.toot_label, self.cw_label, self.cw_toggle, self.poll_toggle, self.media_toggle, self.privacy_label, self.posts_label, *self.poll_widgets, self.alt_text_label]:
                 widget.SetForegroundColour(light_text_color)
                 widget.SetBackgroundColour(dark_color)
             self.poll_sizer.GetStaticBox().SetForegroundColour(light_text_color)
@@ -1078,6 +1086,13 @@ class ThriveFrame(wx.Frame):
         self.poll_sizer.Show(show)
         self.panel.Layout()
 
+    def on_toggle_media(self, event):
+        show = self.media_toggle.IsChecked()
+        for widget in self.media_widgets:
+            widget.Show(show)
+        self.media_sizer.Show(show)
+        self.panel.Layout()
+
     def on_post_activated(self, event): self.show_post_details()
 
     def on_post(self, event):
@@ -1099,6 +1114,7 @@ class ThriveFrame(wx.Frame):
             if tootsnd: tootsnd.play()
             self.toot_input.SetValue(""); self.cw_input.SetValue(""); self.cw_toggle.SetValue(False); self.on_toggle_cw(None)
             self.media_files.clear(); self.media_list.Clear(); self.alt_text_input.SetValue("")
+            self.media_toggle.SetValue(False); self.on_toggle_media(None)
             if poll_data:
                 self.poll_toggle.SetValue(False); [opt.SetValue("") for opt in self.poll_option_inputs]; self.poll_duration_choice.SetSelection(5); self.poll_multiple_choice.SetValue(False); self.on_toggle_poll(None)
         except Exception as e: wx.MessageBox(f"Error: {e}", "Post Error")
