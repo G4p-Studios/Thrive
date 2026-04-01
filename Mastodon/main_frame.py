@@ -281,11 +281,18 @@ class ThriveFrame(wx.Frame):
         self.show_avatars_item = view_menu.Append(wx.ID_ANY, "Show Profile Pictures", "Toggle display of profile pictures", kind=wx.ITEM_CHECK)
         self.Bind(wx.EVT_MENU, self.on_toggle_show_avatars, self.show_avatars_item)
         view_menu.AppendSeparator()
+        explore_item = view_menu.Append(wx.ID_ANY, "E&xplore/Discover...", "Browse trending posts, hashtags, and links")
+        lists_item = view_menu.Append(wx.ID_ANY, "&Lists...", "Manage and view lists")
+        followed_hashtags_item = view_menu.Append(wx.ID_ANY, "Followed &Hashtags...", "View and manage followed hashtags")
+        view_menu.AppendSeparator()
         followers_item = view_menu.Append(wx.ID_ANY, "My &Followers", "View your followers")
         following_item = view_menu.Append(wx.ID_ANY, "My F&ollowing", "View who you follow")
         blocked_item = view_menu.Append(wx.ID_ANY, "&Blocked Users", "View blocked users")
         muted_item = view_menu.Append(wx.ID_ANY, "M&uted Users", "View muted users")
         follow_requests_item = view_menu.Append(wx.ID_ANY, "Follow &Requests", "View pending follow requests")
+        self.Bind(wx.EVT_MENU, self.on_explore, explore_item)
+        self.Bind(wx.EVT_MENU, self.on_lists, lists_item)
+        self.Bind(wx.EVT_MENU, self.on_followed_hashtags, followed_hashtags_item)
         self.Bind(wx.EVT_MENU, self.on_view_followers, followers_item)
         self.Bind(wx.EVT_MENU, self.on_view_following, following_item)
         self.Bind(wx.EVT_MENU, self.on_view_blocked, blocked_item)
@@ -310,9 +317,18 @@ class ThriveFrame(wx.Frame):
         edit_menu_item = actions_menu.Append(wx.ID_ANY, "&Edit Post\tCtrl+E")
         pin_menu_item = actions_menu.Append(wx.ID_ANY, "&Pin/Unpin Post\tCtrl+P")
         actions_menu.AppendSeparator()
+        mute_convo_menu_item = actions_menu.Append(wx.ID_ANY, "Mute Con&versation")
+        report_menu_item = actions_menu.Append(wx.ID_ANY, "&Report Post/User...")
+        actions_menu.AppendSeparator()
+        view_media_menu_item = actions_menu.Append(wx.ID_ANY, "View M&edia Attachments")
+        view_boosters_menu_item = actions_menu.Append(wx.ID_ANY, "View &Who Boosted")
+        view_favouriters_menu_item = actions_menu.Append(wx.ID_ANY, "View Who Fav&ourited")
+        view_history_menu_item = actions_menu.Append(wx.ID_ANY, "View Edit &History")
+        actions_menu.AppendSeparator()
         profile_menu_item = actions_menu.Append(wx.ID_ANY, "View &User Profile\tCtrl+Shift+U")
         search_menu_item = actions_menu.Append(wx.ID_ANY, "&Search\tCtrl+Shift+S")
         user_timeline_menu_item = actions_menu.Append(wx.ID_ANY, "Open User Time&line\tCtrl+Shift+L")
+        dm_user_menu_item = actions_menu.Append(wx.ID_ANY, "Send &Direct Message")
         
         self.Bind(wx.EVT_MENU, self.on_reply, reply_menu_item)
         self.Bind(wx.EVT_MENU, self.on_boost, boost_menu_item)
@@ -326,9 +342,16 @@ class ThriveFrame(wx.Frame):
         self.Bind(wx.EVT_MENU, self.on_mute_user, mute_menu_item)
         self.Bind(wx.EVT_MENU, self.on_edit_post, edit_menu_item)
         self.Bind(wx.EVT_MENU, self.on_pin_post, pin_menu_item)
+        self.Bind(wx.EVT_MENU, self.on_mute_conversation, mute_convo_menu_item)
+        self.Bind(wx.EVT_MENU, self.on_report, report_menu_item)
+        self.Bind(wx.EVT_MENU, self.on_view_media, view_media_menu_item)
+        self.Bind(wx.EVT_MENU, self.on_view_boosters, view_boosters_menu_item)
+        self.Bind(wx.EVT_MENU, self.on_view_favouriters, view_favouriters_menu_item)
+        self.Bind(wx.EVT_MENU, self.on_view_edit_history, view_history_menu_item)
         self.Bind(wx.EVT_MENU, self.on_view_profile, profile_menu_item)
         self.Bind(wx.EVT_MENU, self.on_search, search_menu_item)
         self.Bind(wx.EVT_MENU, self.on_open_user_timeline, user_timeline_menu_item)
+        self.Bind(wx.EVT_MENU, self.on_dm_user, dm_user_menu_item)
         menubar.Append(actions_menu, "&Actions")
         
         self.SetMenuBar(menubar)
@@ -416,6 +439,11 @@ class ThriveFrame(wx.Frame):
         self.privacy_label = wx.StaticText(self.panel, label="P&rivacy:")
         self.privacy_choice = wx.Choice(self.panel, choices=self.privacy_options)
         self.privacy_choice.SetSelection(0)
+        self.language_label = wx.StaticText(self.panel, label="Lan&guage:")
+        self.language_names = ["Default", "English", "Spanish", "French", "German", "Italian", "Portuguese", "Japanese", "Chinese", "Korean", "Russian", "Arabic", "Dutch", "Polish", "Swedish", "Turkish", "Indonesian", "Hindi", "Thai", "Vietnamese"]
+        self.language_codes = ["", "en", "es", "fr", "de", "it", "pt", "ja", "zh", "ko", "ru", "ar", "nl", "pl", "sv", "tr", "id", "hi", "th", "vi"]
+        self.language_choice = wx.Choice(self.panel, choices=self.language_names)
+        self.language_choice.SetSelection(0)
         self.post_button = wx.Button(self.panel, label="&Post")
         self.post_button.Bind(wx.EVT_BUTTON, self.on_post)
         self.exit_button = wx.Button(self.panel, label="E&xit")
@@ -446,12 +474,12 @@ class ThriveFrame(wx.Frame):
             dark_color = wx.Colour(40, 40, 40)
             light_text_color = wx.WHITE
             # Updated to include self.poll_widgets
-            for widget in [self.toot_label, self.cw_label, self.cw_toggle, self.poll_toggle, self.media_toggle, self.privacy_label, self.posts_label, *self.poll_widgets, self.alt_text_label]:
+            for widget in [self.toot_label, self.cw_label, self.cw_toggle, self.poll_toggle, self.media_toggle, self.privacy_label, self.language_label, self.posts_label, *self.poll_widgets, self.alt_text_label]:
                 widget.SetForegroundColour(light_text_color)
                 widget.SetBackgroundColour(dark_color)
             self.poll_sizer.GetStaticBox().SetForegroundColour(light_text_color)
             self.media_sizer.GetStaticBox().SetForegroundColour(light_text_color)
-            for widget in [self.toot_input, self.cw_input, self.privacy_choice, self.timeline_tree, self.posts_list, self.post_button, self.exit_button, *self.media_widgets]:
+            for widget in [self.toot_input, self.cw_input, self.privacy_choice, self.language_choice, self.timeline_tree, self.posts_list, self.post_button, self.exit_button, *self.media_widgets]:
                 widget.SetForegroundColour(light_text_color)
                 widget.SetBackgroundColour(dark_color)
 
@@ -460,6 +488,8 @@ class ThriveFrame(wx.Frame):
         hbox.Add(self.posts_list, 1, wx.EXPAND | wx.ALL, 5)
         vbox.Add(self.privacy_label, 0, wx.LEFT | wx.RIGHT | wx.TOP, 5)
         vbox.Add(self.privacy_choice, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM | wx.EXPAND, 5)
+        vbox.Add(self.language_label, 0, wx.LEFT | wx.RIGHT | wx.TOP, 5)
+        vbox.Add(self.language_choice, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM | wx.EXPAND, 5)
         vbox.Add(self.post_button, 0, wx.ALL | wx.CENTER, 5)
         vbox.Add(self.exit_button, 0, wx.ALL | wx.CENTER, 5)
         vbox.Add(self.posts_label, 0, wx.ALL | wx.EXPAND, 5)
@@ -556,6 +586,15 @@ class ThriveFrame(wx.Frame):
             menu.AppendSeparator()
         profile_item = menu.Append(wx.ID_ANY, "View &User Profile\tCtrl+Shift+U")
         user_tl_item = menu.Append(wx.ID_ANY, "Open User Time&line\tCtrl+Shift+L")
+        menu.AppendSeparator()
+        view_media_item = menu.Append(wx.ID_ANY, "View M&edia Attachments")
+        view_boosters_item = menu.Append(wx.ID_ANY, "View &Who Boosted")
+        view_favouriters_item = menu.Append(wx.ID_ANY, "View Who Fav&ourited")
+        view_history_item = menu.Append(wx.ID_ANY, "View Edit &History")
+        menu.AppendSeparator()
+        mute_convo_item = menu.Append(wx.ID_ANY, "Mute Con&versation")
+        report_item = menu.Append(wx.ID_ANY, "&Report Post/User...")
+        dm_item = menu.Append(wx.ID_ANY, "Send &Direct Message")
         self.Bind(wx.EVT_MENU, self.on_reply, reply_item)
         self.Bind(wx.EVT_MENU, self.on_boost, boost_item)
         self.Bind(wx.EVT_MENU, self.on_favourite, fav_item)
@@ -568,6 +607,13 @@ class ThriveFrame(wx.Frame):
         self.Bind(wx.EVT_MENU, self.on_mute_user, mute_item)
         self.Bind(wx.EVT_MENU, self.on_view_profile, profile_item)
         self.Bind(wx.EVT_MENU, self.on_open_user_timeline, user_tl_item)
+        self.Bind(wx.EVT_MENU, self.on_view_media, view_media_item)
+        self.Bind(wx.EVT_MENU, self.on_view_boosters, view_boosters_item)
+        self.Bind(wx.EVT_MENU, self.on_view_favouriters, view_favouriters_item)
+        self.Bind(wx.EVT_MENU, self.on_view_edit_history, view_history_item)
+        self.Bind(wx.EVT_MENU, self.on_mute_conversation, mute_convo_item)
+        self.Bind(wx.EVT_MENU, self.on_report, report_item)
+        self.Bind(wx.EVT_MENU, self.on_dm_user, dm_item)
         self.posts_list.PopupMenu(menu)
         menu.Destroy()
 
@@ -995,7 +1041,602 @@ class ThriveFrame(wx.Frame):
             dlg.ShowModal()
             dlg.Destroy()
         except Exception as e: wx.MessageBox(f"Error: {e}", "Error")
-    
+
+    def on_explore(self, event):
+        dlg = wx.Dialog(self, title="Explore / Discover", size=(700, 500))
+        panel = wx.Panel(dlg)
+        sizer = wx.BoxSizer(wx.VERTICAL)
+        notebook = wx.Notebook(panel)
+        
+        # Trending posts tab
+        posts_panel = wx.Panel(notebook)
+        posts_sizer = wx.BoxSizer(wx.VERTICAL)
+        posts_list = wx.ListBox(posts_panel, style=wx.LB_SINGLE, size=(-1, 350))
+        posts_sizer.Add(posts_list, 1, wx.EXPAND | wx.ALL, 5)
+        posts_panel.SetSizer(posts_sizer)
+        notebook.AddPage(posts_panel, "Trending Posts")
+        
+        # Trending hashtags tab
+        tags_panel = wx.Panel(notebook)
+        tags_sizer = wx.BoxSizer(wx.VERTICAL)
+        tags_list = wx.ListBox(tags_panel, style=wx.LB_SINGLE, size=(-1, 300))
+        tags_sizer.Add(tags_list, 1, wx.EXPAND | wx.ALL, 5)
+        follow_tag_btn = wx.Button(tags_panel, label="&Open Hashtag Timeline")
+        tags_sizer.Add(follow_tag_btn, 0, wx.ALL, 5)
+        tags_panel.SetSizer(tags_sizer)
+        notebook.AddPage(tags_panel, "Trending Hashtags")
+        
+        # Trending links tab
+        links_panel = wx.Panel(notebook)
+        links_sizer = wx.BoxSizer(wx.VERTICAL)
+        links_list = wx.ListBox(links_panel, style=wx.LB_SINGLE, size=(-1, 300))
+        links_sizer.Add(links_list, 1, wx.EXPAND | wx.ALL, 5)
+        open_link_btn = wx.Button(links_panel, label="&Open Link in Browser")
+        links_sizer.Add(open_link_btn, 0, wx.ALL, 5)
+        links_panel.SetSizer(links_sizer)
+        notebook.AddPage(links_panel, "Trending Links")
+        
+        sizer.Add(notebook, 1, wx.EXPAND | wx.ALL, 5)
+        close_btn = wx.Button(panel, id=wx.ID_CANCEL, label="&Close")
+        sizer.Add(close_btn, 0, wx.ALIGN_RIGHT | wx.ALL, 5)
+        panel.SetSizer(sizer)
+        
+        trending_posts = []
+        trending_tags = []
+        trending_links = []
+        try:
+            trending_posts = self.mastodon.trending_statuses(limit=20)
+            for post in trending_posts:
+                author = post['account'].get('display_name') or post['account'].get('username', '')
+                content = strip_html((post.get('content', '') or '').replace('<br />', '\n').replace('<br>', '\n').replace('</p>', ' ')).strip()[:150]
+                posts_list.Append(f"{author}: {content}")
+        except Exception: pass
+        try:
+            trending_tags = self.mastodon.trending_tags(limit=20)
+            for tag in trending_tags:
+                history = tag.get('history', [{}])
+                uses = sum(int(h.get('uses', 0)) for h in history[:1])
+                tags_list.Append(f"#{tag['name']} ({uses} recent uses)")
+        except Exception: pass
+        try:
+            trending_links = self.mastodon.trending_links(limit=20)
+            for link in trending_links:
+                links_list.Append(f"{link.get('title', 'Untitled')} - {link.get('url', '')}")
+        except Exception: pass
+        
+        def on_open_trending_post(e):
+            sel = posts_list.GetSelection()
+            if sel != wx.NOT_FOUND and sel < len(trending_posts):
+                post_dlg = PostDetailsDialog(dlg, self.mastodon, trending_posts[sel], self.me, votesnd=votesnd)
+                post_dlg.ShowModal()
+                post_dlg.Destroy()
+        
+        def on_open_tag_timeline(e):
+            sel = tags_list.GetSelection()
+            if sel != wx.NOT_FOUND and sel < len(trending_tags):
+                tag_name = trending_tags[sel]['name']
+                timeline_key = f"hashtag:{tag_name}"
+                self.timelines_data[timeline_key] = []
+                if timeline_key not in self.timeline_nodes:
+                    node = self.timeline_tree.AppendItem(self.root, f"#{tag_name}")
+                    self.timeline_nodes[timeline_key] = node
+                dlg.Close()
+                self.timeline_tree.SelectItem(self.timeline_nodes[timeline_key])
+                threading.Thread(target=self.load_timeline, args=(timeline_key,), daemon=True).start()
+        
+        def on_open_link(e):
+            sel = links_list.GetSelection()
+            if sel != wx.NOT_FOUND and sel < len(trending_links):
+                webbrowser.open(trending_links[sel].get('url', ''))
+        
+        posts_list.Bind(wx.EVT_LISTBOX_DCLICK, on_open_trending_post)
+        follow_tag_btn.Bind(wx.EVT_BUTTON, on_open_tag_timeline)
+        tags_list.Bind(wx.EVT_LISTBOX_DCLICK, on_open_tag_timeline)
+        open_link_btn.Bind(wx.EVT_BUTTON, on_open_link)
+        links_list.Bind(wx.EVT_LISTBOX_DCLICK, on_open_link)
+        
+        if is_windows_dark_mode():
+            dc = wx.Colour(40, 40, 40)
+            lt = wx.WHITE
+            WxMswDarkMode().enable(dlg)
+            for w in [dlg, panel, posts_panel, tags_panel, links_panel]:
+                w.SetBackgroundColour(dc)
+            for w in [posts_list, tags_list, links_list, follow_tag_btn, open_link_btn, close_btn, notebook]:
+                w.SetBackgroundColour(dc)
+                w.SetForegroundColour(lt)
+        
+        dlg.ShowModal()
+        dlg.Destroy()
+
+    def on_lists(self, event):
+        dlg = wx.Dialog(self, title="Lists", size=(500, 450))
+        panel = wx.Panel(dlg)
+        sizer = wx.BoxSizer(wx.VERTICAL)
+        
+        lists_listbox = wx.ListBox(panel, style=wx.LB_SINGLE, size=(-1, 250))
+        sizer.Add(lists_listbox, 1, wx.EXPAND | wx.ALL, 10)
+        
+        user_lists = []
+        try:
+            user_lists = self.mastodon.lists()
+            for lst in user_lists:
+                lists_listbox.Append(lst.get('title', 'Untitled'))
+        except Exception: pass
+        
+        btn_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        open_btn = wx.Button(panel, label="&Open Timeline")
+        create_btn = wx.Button(panel, label="&Create List")
+        delete_btn = wx.Button(panel, label="&Delete List")
+        manage_btn = wx.Button(panel, label="&Manage Members")
+        close_btn = wx.Button(panel, id=wx.ID_CANCEL, label="C&lose")
+        btn_sizer.Add(open_btn, 0, wx.ALL, 3)
+        btn_sizer.Add(create_btn, 0, wx.ALL, 3)
+        btn_sizer.Add(delete_btn, 0, wx.ALL, 3)
+        btn_sizer.Add(manage_btn, 0, wx.ALL, 3)
+        btn_sizer.Add(close_btn, 0, wx.ALL, 3)
+        sizer.Add(btn_sizer, 0, wx.ALL, 5)
+        panel.SetSizer(sizer)
+        
+        def on_open_list_timeline(e):
+            sel = lists_listbox.GetSelection()
+            if sel == wx.NOT_FOUND: return
+            lst = user_lists[sel]
+            timeline_key = f"list:{lst['id']}"
+            self.timelines_data[timeline_key] = []
+            if timeline_key not in self.timeline_nodes:
+                node = self.timeline_tree.AppendItem(self.root, f"List: {lst['title']}")
+                self.timeline_nodes[timeline_key] = node
+            dlg.Close()
+            self.timeline_tree.SelectItem(self.timeline_nodes[timeline_key])
+            threading.Thread(target=self.load_timeline, args=(timeline_key,), daemon=True).start()
+        
+        def on_create_list(e):
+            name_dlg = wx.TextEntryDialog(dlg, "List name:", "Create List")
+            if name_dlg.ShowModal() == wx.ID_OK:
+                name = name_dlg.GetValue().strip()
+                if name:
+                    try:
+                        new_list = self.mastodon.list_create(name)
+                        user_lists.append(new_list)
+                        lists_listbox.Append(new_list.get('title', 'Untitled'))
+                    except Exception as ex: wx.MessageBox(f"Error: {ex}", "Error")
+            name_dlg.Destroy()
+        
+        def on_delete_list(e):
+            sel = lists_listbox.GetSelection()
+            if sel == wx.NOT_FOUND: return
+            lst = user_lists[sel]
+            if wx.MessageBox(f"Delete list '{lst['title']}'?", "Confirm", wx.YES_NO | wx.ICON_QUESTION) == wx.YES:
+                try:
+                    self.mastodon.list_delete(lst['id'])
+                    user_lists.pop(sel)
+                    lists_listbox.Delete(sel)
+                except Exception as ex: wx.MessageBox(f"Error: {ex}", "Error")
+        
+        def on_manage_members(e):
+            sel = lists_listbox.GetSelection()
+            if sel == wx.NOT_FOUND: return
+            lst = user_lists[sel]
+            self._manage_list_members(dlg, lst)
+        
+        open_btn.Bind(wx.EVT_BUTTON, on_open_list_timeline)
+        lists_listbox.Bind(wx.EVT_LISTBOX_DCLICK, on_open_list_timeline)
+        create_btn.Bind(wx.EVT_BUTTON, on_create_list)
+        delete_btn.Bind(wx.EVT_BUTTON, on_delete_list)
+        manage_btn.Bind(wx.EVT_BUTTON, on_manage_members)
+        
+        if is_windows_dark_mode():
+            dc = wx.Colour(40, 40, 40)
+            lt = wx.WHITE
+            WxMswDarkMode().enable(dlg)
+            dlg.SetBackgroundColour(dc); panel.SetBackgroundColour(dc)
+            for w in [lists_listbox, open_btn, create_btn, delete_btn, manage_btn, close_btn]:
+                w.SetBackgroundColour(dc); w.SetForegroundColour(lt)
+        
+        dlg.ShowModal()
+        dlg.Destroy()
+
+    def _manage_list_members(self, parent, lst):
+        dlg = wx.Dialog(parent, title=f"Members of '{lst['title']}'", size=(500, 400))
+        panel = wx.Panel(dlg)
+        sizer = wx.BoxSizer(wx.VERTICAL)
+        members_listbox = wx.ListBox(panel, style=wx.LB_SINGLE, size=(-1, 250))
+        sizer.Add(members_listbox, 1, wx.EXPAND | wx.ALL, 10)
+        
+        members = []
+        try:
+            members = self.mastodon.list_accounts(lst['id'], limit=80)
+            for acc in members:
+                display = acc.get('display_name') or acc.get('username', '')
+                members_listbox.Append(f"{display} (@{acc.get('acct', '')})")
+        except Exception: pass
+        
+        btn_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        add_btn = wx.Button(panel, label="&Add User")
+        remove_btn = wx.Button(panel, label="&Remove User")
+        close_btn = wx.Button(panel, id=wx.ID_CANCEL, label="&Close")
+        btn_sizer.Add(add_btn, 0, wx.ALL, 5)
+        btn_sizer.Add(remove_btn, 0, wx.ALL, 5)
+        btn_sizer.Add(close_btn, 0, wx.ALL, 5)
+        sizer.Add(btn_sizer, 0, wx.ALL, 5)
+        panel.SetSizer(sizer)
+        
+        def on_add_user(e):
+            search_dlg = wx.TextEntryDialog(dlg, "Search for user to add:", "Add to List")
+            if search_dlg.ShowModal() == wx.ID_OK:
+                query = search_dlg.GetValue().strip()
+                if query:
+                    try:
+                        results = self.mastodon.account_search(query, limit=10)
+                        if results:
+                            choices = [f"{a.get('display_name', '')} (@{a.get('acct', '')})" for a in results]
+                            sel_dlg = wx.SingleChoiceDialog(dlg, "Select user:", "Add to List", choices)
+                            if sel_dlg.ShowModal() == wx.ID_OK:
+                                acc = results[sel_dlg.GetSelection()]
+                                self.mastodon.list_accounts_add(lst['id'], [acc['id']])
+                                members.append(acc)
+                                members_listbox.Append(f"{acc.get('display_name', '')} (@{acc.get('acct', '')})")
+                            sel_dlg.Destroy()
+                        else:
+                            wx.MessageBox("No users found.", "Search")
+                    except Exception as ex: wx.MessageBox(f"Error: {ex}", "Error")
+            search_dlg.Destroy()
+        
+        def on_remove_user(e):
+            sel = members_listbox.GetSelection()
+            if sel == wx.NOT_FOUND: return
+            acc = members[sel]
+            try:
+                self.mastodon.list_accounts_delete(lst['id'], [acc['id']])
+                members.pop(sel)
+                members_listbox.Delete(sel)
+            except Exception as ex: wx.MessageBox(f"Error: {ex}", "Error")
+        
+        add_btn.Bind(wx.EVT_BUTTON, on_add_user)
+        remove_btn.Bind(wx.EVT_BUTTON, on_remove_user)
+        
+        if is_windows_dark_mode():
+            dc = wx.Colour(40, 40, 40)
+            lt = wx.WHITE
+            WxMswDarkMode().enable(dlg)
+            dlg.SetBackgroundColour(dc); panel.SetBackgroundColour(dc)
+            for w in [members_listbox, add_btn, remove_btn, close_btn]:
+                w.SetBackgroundColour(dc); w.SetForegroundColour(lt)
+        
+        dlg.ShowModal()
+        dlg.Destroy()
+
+    def on_followed_hashtags(self, event):
+        dlg = wx.Dialog(self, title="Followed Hashtags", size=(500, 400))
+        panel = wx.Panel(dlg)
+        sizer = wx.BoxSizer(wx.VERTICAL)
+        tags_listbox = wx.ListBox(panel, style=wx.LB_SINGLE, size=(-1, 250))
+        sizer.Add(tags_listbox, 1, wx.EXPAND | wx.ALL, 10)
+        
+        followed_tags = []
+        try:
+            followed_tags = self.mastodon.followed_tags()
+            for tag in followed_tags:
+                tags_listbox.Append(f"#{tag['name']}")
+        except Exception: pass
+        
+        btn_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        open_btn = wx.Button(panel, label="&Open Timeline")
+        follow_btn = wx.Button(panel, label="&Follow New Hashtag")
+        unfollow_btn = wx.Button(panel, label="&Unfollow")
+        close_btn = wx.Button(panel, id=wx.ID_CANCEL, label="&Close")
+        btn_sizer.Add(open_btn, 0, wx.ALL, 3)
+        btn_sizer.Add(follow_btn, 0, wx.ALL, 3)
+        btn_sizer.Add(unfollow_btn, 0, wx.ALL, 3)
+        btn_sizer.Add(close_btn, 0, wx.ALL, 3)
+        sizer.Add(btn_sizer, 0, wx.ALL, 5)
+        panel.SetSizer(sizer)
+        
+        def on_open_tag(e):
+            sel = tags_listbox.GetSelection()
+            if sel == wx.NOT_FOUND: return
+            tag_name = followed_tags[sel]['name']
+            timeline_key = f"hashtag:{tag_name}"
+            self.timelines_data[timeline_key] = []
+            if timeline_key not in self.timeline_nodes:
+                node = self.timeline_tree.AppendItem(self.root, f"#{tag_name}")
+                self.timeline_nodes[timeline_key] = node
+            dlg.Close()
+            self.timeline_tree.SelectItem(self.timeline_nodes[timeline_key])
+            threading.Thread(target=self.load_timeline, args=(timeline_key,), daemon=True).start()
+        
+        def on_follow_new(e):
+            tag_dlg = wx.TextEntryDialog(dlg, "Hashtag to follow (without #):", "Follow Hashtag")
+            if tag_dlg.ShowModal() == wx.ID_OK:
+                tag_name = tag_dlg.GetValue().strip().lstrip('#')
+                if tag_name:
+                    try:
+                        tag = self.mastodon.hashtag_follow(tag_name)
+                        followed_tags.append(tag)
+                        tags_listbox.Append(f"#{tag['name']}")
+                    except Exception as ex: wx.MessageBox(f"Error: {ex}", "Error")
+            tag_dlg.Destroy()
+        
+        def on_unfollow(e):
+            sel = tags_listbox.GetSelection()
+            if sel == wx.NOT_FOUND: return
+            try:
+                self.mastodon.hashtag_unfollow(followed_tags[sel]['name'])
+                followed_tags.pop(sel)
+                tags_listbox.Delete(sel)
+            except Exception as ex: wx.MessageBox(f"Error: {ex}", "Error")
+        
+        open_btn.Bind(wx.EVT_BUTTON, on_open_tag)
+        tags_listbox.Bind(wx.EVT_LISTBOX_DCLICK, on_open_tag)
+        follow_btn.Bind(wx.EVT_BUTTON, on_follow_new)
+        unfollow_btn.Bind(wx.EVT_BUTTON, on_unfollow)
+        
+        if is_windows_dark_mode():
+            dc = wx.Colour(40, 40, 40)
+            lt = wx.WHITE
+            WxMswDarkMode().enable(dlg)
+            dlg.SetBackgroundColour(dc); panel.SetBackgroundColour(dc)
+            for w in [tags_listbox, open_btn, follow_btn, unfollow_btn, close_btn]:
+                w.SetBackgroundColour(dc); w.SetForegroundColour(lt)
+        
+        dlg.ShowModal()
+        dlg.Destroy()
+
+    def on_view_media(self, event):
+        status, _ = self.get_selected_status()
+        if not status: return
+        source = status.get('reblog') or status
+        attachments = source.get('media_attachments', [])
+        if not attachments:
+            wx.MessageBox("This post has no media attachments.", "No Media")
+            return
+        
+        dlg = wx.Dialog(self, title=f"Media Attachments ({len(attachments)})", size=(600, 450))
+        panel = wx.Panel(dlg)
+        sizer = wx.BoxSizer(wx.VERTICAL)
+        
+        media_listbox = wx.ListBox(panel, style=wx.LB_SINGLE, size=(-1, 200))
+        for i, att in enumerate(attachments):
+            atype = att.get('type', 'unknown').capitalize()
+            desc = att.get('description') or 'No description'
+            media_listbox.Append(f"[{atype}] {desc}")
+        sizer.Add(media_listbox, 1, wx.EXPAND | wx.ALL, 10)
+        
+        desc_label = wx.StaticText(panel, label="Description:")
+        desc_text = wx.TextCtrl(panel, style=wx.TE_MULTILINE | wx.TE_READONLY, size=(-1, 80))
+        sizer.Add(desc_label, 0, wx.LEFT | wx.RIGHT, 10)
+        sizer.Add(desc_text, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
+        
+        def on_media_sel(e):
+            sel = media_listbox.GetSelection()
+            if sel != wx.NOT_FOUND:
+                desc_text.SetValue(attachments[sel].get('description') or 'No description provided')
+        media_listbox.Bind(wx.EVT_LISTBOX, on_media_sel)
+        
+        btn_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        open_btn = wx.Button(panel, label="Open in &Browser")
+        copy_url_btn = wx.Button(panel, label="&Copy URL")
+        close_btn = wx.Button(panel, id=wx.ID_CANCEL, label="C&lose")
+        btn_sizer.Add(open_btn, 0, wx.ALL, 5)
+        btn_sizer.Add(copy_url_btn, 0, wx.ALL, 5)
+        btn_sizer.Add(close_btn, 0, wx.ALL, 5)
+        sizer.Add(btn_sizer, 0, wx.ALIGN_RIGHT | wx.ALL, 5)
+        panel.SetSizer(sizer)
+        
+        def on_open_media(e):
+            sel = media_listbox.GetSelection()
+            if sel != wx.NOT_FOUND:
+                url = attachments[sel].get('url') or attachments[sel].get('remote_url', '')
+                if url: webbrowser.open(url)
+        
+        def on_copy_url(e):
+            sel = media_listbox.GetSelection()
+            if sel != wx.NOT_FOUND:
+                url = attachments[sel].get('url') or attachments[sel].get('remote_url', '')
+                if pyperclip: pyperclip.copy(url)
+                elif wx.TheClipboard.Open():
+                    wx.TheClipboard.SetData(wx.TextDataObject(url))
+                    wx.TheClipboard.Close()
+        
+        open_btn.Bind(wx.EVT_BUTTON, on_open_media)
+        media_listbox.Bind(wx.EVT_LISTBOX_DCLICK, on_open_media)
+        copy_url_btn.Bind(wx.EVT_BUTTON, on_copy_url)
+        
+        if media_listbox.GetCount() > 0:
+            media_listbox.SetSelection(0)
+            on_media_sel(None)
+        
+        if is_windows_dark_mode():
+            dc = wx.Colour(40, 40, 40)
+            lt = wx.WHITE
+            WxMswDarkMode().enable(dlg)
+            dlg.SetBackgroundColour(dc); panel.SetBackgroundColour(dc)
+            for w in [media_listbox, desc_label, desc_text, open_btn, copy_url_btn, close_btn]:
+                w.SetBackgroundColour(dc); w.SetForegroundColour(lt)
+        
+        dlg.ShowModal()
+        dlg.Destroy()
+
+    def on_view_boosters(self, event):
+        status, _ = self.get_selected_status()
+        if not status: return
+        source = status.get('reblog') or status
+        try:
+            accounts = self.mastodon.status_reblogged_by(source['id'])
+            if not accounts:
+                wx.MessageBox("No one has boosted this post yet.", "Boosters")
+                return
+            self._show_account_list(f"Boosted by ({len(accounts)})", accounts)
+        except Exception as e: wx.MessageBox(f"Error: {e}", "Error")
+
+    def on_view_favouriters(self, event):
+        status, _ = self.get_selected_status()
+        if not status: return
+        source = status.get('reblog') or status
+        try:
+            accounts = self.mastodon.status_favourited_by(source['id'])
+            if not accounts:
+                wx.MessageBox("No one has favourited this post yet.", "Favouriters")
+                return
+            self._show_account_list(f"Favourited by ({len(accounts)})", accounts)
+        except Exception as e: wx.MessageBox(f"Error: {e}", "Error")
+
+    def on_view_edit_history(self, event):
+        status, _ = self.get_selected_status()
+        if not status: return
+        source = status.get('reblog') or status
+        try:
+            history = self.mastodon.status_history(source['id'])
+            if not history or len(history) < 2:
+                wx.MessageBox("This post has no edit history.", "Edit History")
+                return
+            dlg = wx.Dialog(self, title=f"Edit History ({len(history)} versions)", size=(600, 400))
+            panel = wx.Panel(dlg)
+            sizer = wx.BoxSizer(wx.VERTICAL)
+            versions_list = wx.ListBox(panel, style=wx.LB_SINGLE, size=(-1, 150))
+            for i, ver in enumerate(history):
+                label = f"Version {len(history) - i}"
+                if ver.get('created_at'):
+                    label += f" - {ver['created_at'].strftime('%Y-%m-%d %H:%M')}"
+                versions_list.Append(label)
+            sizer.Add(versions_list, 0, wx.EXPAND | wx.ALL, 10)
+            
+            content_text = wx.TextCtrl(panel, style=wx.TE_MULTILINE | wx.TE_READONLY, size=(-1, 150))
+            sizer.Add(wx.StaticText(panel, label="Content:"), 0, wx.LEFT | wx.RIGHT, 10)
+            sizer.Add(content_text, 1, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
+            
+            def on_version_sel(e):
+                sel = versions_list.GetSelection()
+                if sel != wx.NOT_FOUND:
+                    ver = history[sel]
+                    text = strip_html((ver.get('content', '') or '').replace('<br />', '\n').replace('<br>', '\n').replace('</p>', '\n\n')).strip()
+                    if ver.get('spoiler_text'):
+                        text = f"CW: {ver['spoiler_text']}\n\n{text}"
+                    content_text.SetValue(text)
+            versions_list.Bind(wx.EVT_LISTBOX, on_version_sel)
+            
+            close_btn = wx.Button(panel, id=wx.ID_CANCEL, label="&Close")
+            sizer.Add(close_btn, 0, wx.ALIGN_RIGHT | wx.ALL, 10)
+            panel.SetSizer(sizer)
+            
+            if versions_list.GetCount() > 0:
+                versions_list.SetSelection(0)
+                on_version_sel(None)
+            
+            if is_windows_dark_mode():
+                dc = wx.Colour(40, 40, 40)
+                lt = wx.WHITE
+                WxMswDarkMode().enable(dlg)
+                dlg.SetBackgroundColour(dc); panel.SetBackgroundColour(dc)
+                for w in [versions_list, content_text, close_btn]:
+                    w.SetBackgroundColour(dc); w.SetForegroundColour(lt)
+            
+            dlg.ShowModal()
+            dlg.Destroy()
+        except Exception as e: wx.MessageBox(f"Error: {e}", "Error")
+
+    def on_mute_conversation(self, event):
+        status, _ = self.get_selected_status()
+        if not status: return
+        source = status.get('reblog') or status
+        try:
+            if source.get('muted'):
+                self.mastodon.status_unmute(source['id'])
+                source['muted'] = False
+                wx.MessageBox("Conversation unmuted.", "Mute")
+            else:
+                self.mastodon.status_mute(source['id'])
+                source['muted'] = True
+                wx.MessageBox("Conversation muted. You will no longer receive notifications from this thread.", "Mute")
+        except Exception as e: wx.MessageBox(f"Error: {e}", "Mute Error")
+
+    def on_report(self, event):
+        status, _ = self.get_selected_status()
+        if not status: return
+        source = status.get('reblog') or status
+        account = source['account']
+        display = account.get('display_name') or account.get('username', '')
+        
+        dlg = wx.Dialog(self, title=f"Report {display}", size=(500, 350))
+        panel = wx.Panel(dlg)
+        sizer = wx.BoxSizer(wx.VERTICAL)
+        sizer.Add(wx.StaticText(panel, label=f"Report {display} (@{account.get('acct', '')})"), 0, wx.ALL, 10)
+        sizer.Add(wx.StaticText(panel, label="&Reason (optional):"), 0, wx.LEFT | wx.RIGHT, 10)
+        reason_text = wx.TextCtrl(panel, style=wx.TE_MULTILINE, size=(-1, 100))
+        sizer.Add(reason_text, 1, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
+        
+        include_post = wx.CheckBox(panel, label="Include this specific post in the report")
+        include_post.SetValue(True)
+        sizer.Add(include_post, 0, wx.LEFT | wx.RIGHT, 10)
+        
+        btn_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        submit_btn = wx.Button(panel, label="&Submit Report")
+        cancel_btn = wx.Button(panel, id=wx.ID_CANCEL, label="&Cancel")
+        btn_sizer.Add(submit_btn, 0, wx.ALL, 5)
+        btn_sizer.Add(cancel_btn, 0, wx.ALL, 5)
+        sizer.Add(btn_sizer, 0, wx.ALIGN_RIGHT | wx.ALL, 5)
+        panel.SetSizer(sizer)
+        
+        def on_submit(e):
+            comment = reason_text.GetValue().strip()
+            status_ids = [source['id']] if include_post.IsChecked() else []
+            try:
+                self.mastodon.report(account['id'], status_ids=status_ids, comment=comment)
+                wx.MessageBox("Report submitted successfully.", "Report")
+                dlg.Close()
+            except Exception as ex: wx.MessageBox(f"Error: {ex}", "Error")
+        
+        submit_btn.Bind(wx.EVT_BUTTON, on_submit)
+        
+        if is_windows_dark_mode():
+            dc = wx.Colour(40, 40, 40)
+            lt = wx.WHITE
+            WxMswDarkMode().enable(dlg)
+            dlg.SetBackgroundColour(dc); panel.SetBackgroundColour(dc)
+            for w in [reason_text, include_post, submit_btn, cancel_btn]:
+                w.SetBackgroundColour(dc); w.SetForegroundColour(lt)
+        
+        dlg.ShowModal()
+        dlg.Destroy()
+
+    def on_dm_user(self, event):
+        status, _ = self.get_selected_status()
+        if not status: return
+        source = status.get('reblog') or status
+        account = source['account']
+        display = account.get('display_name') or account.get('username', '')
+        acct = account.get('acct', '')
+        
+        dialog = wx.Dialog(self, title=f"Direct Message to {display}", size=(500, 300))
+        panel = wx.Panel(dialog)
+        vbox = wx.BoxSizer(wx.VERTICAL)
+        vbox.Add(wx.StaticText(panel, label=f"Send a direct &message to {display} (@{acct}):"), 0, wx.ALL, 10)
+        dm_text = wx.TextCtrl(panel, style=wx.TE_MULTILINE, size=(480, 100))
+        dm_text.SetValue(f"@{acct} ")
+        dm_text.SetInsertionPointEnd()
+        vbox.Add(dm_text, 1, wx.EXPAND | wx.LEFT | wx.RIGHT, 10)
+        
+        btn_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        send_btn = wx.Button(panel, label="&Send")
+        cancel_btn = wx.Button(panel, id=wx.ID_CANCEL, label="&Cancel")
+        btn_sizer.Add(send_btn, 0, wx.ALL, 5)
+        btn_sizer.Add(cancel_btn, 0, wx.ALL, 5)
+        vbox.Add(btn_sizer, 0, wx.ALIGN_RIGHT | wx.RIGHT | wx.BOTTOM, 10)
+        panel.SetSizer(vbox)
+        
+        def do_send(e):
+            text = dm_text.GetValue().strip()
+            if not text: return wx.MessageBox("Message cannot be empty.", "Error", wx.OK | wx.ICON_ERROR)
+            try:
+                self.mastodon.status_post(text, visibility="direct")
+                if dmsnd: dmsnd.play()
+                dialog.Close()
+            except Exception as ex: wx.MessageBox(f"Error: {ex}", "Error", wx.OK | wx.ICON_ERROR)
+        
+        send_btn.Bind(wx.EVT_BUTTON, do_send)
+        dialog.ShowModal()
+        dialog.Destroy()
+
     def on_view_profile(self, event):
         status, _ = self.get_selected_status()
         if not status: return
@@ -1099,6 +1740,7 @@ class ThriveFrame(wx.Frame):
         status_text = self.toot_input.GetValue().strip()
         spoiler = self.cw_input.GetValue().strip() if self.cw_toggle.IsChecked() else None
         visibility = self.privacy_values[self.privacy_choice.GetSelection()]
+        language = self.language_codes[self.language_choice.GetSelection()] or None
         poll_data = None
         if self.poll_toggle.IsChecked():
             options = [opt.GetValue().strip() for opt in self.poll_option_inputs if opt.GetValue().strip()]
@@ -1110,7 +1752,7 @@ class ThriveFrame(wx.Frame):
             for mf in self.media_files:
                 media = self.mastodon.media_post(mf["path"], description=mf.get("alt_text") or None)
                 media_ids.append(media)
-            self.mastodon.status_post(status_text, spoiler_text=spoiler, visibility=visibility, poll=poll_data, media_ids=media_ids if media_ids else None)
+            self.mastodon.status_post(status_text, spoiler_text=spoiler, visibility=visibility, poll=poll_data, media_ids=media_ids if media_ids else None, language=language)
             if tootsnd: tootsnd.play()
             self.toot_input.SetValue(""); self.cw_input.SetValue(""); self.cw_toggle.SetValue(False); self.on_toggle_cw(None)
             self.media_files.clear(); self.media_list.Clear(); self.alt_text_input.SetValue("")
@@ -1150,6 +1792,8 @@ class ThriveFrame(wx.Frame):
                 elif key == "notifications": data = self.mastodon.notifications(max_id=last_id, limit=40)
                 elif key == "mentions": data = [n["status"] for n in self.mastodon.notifications(types=["mention"], max_id=last_id, limit=40) if n.get("status")]
                 elif key.startswith("user:"): data = self.mastodon.account_statuses(key.split(":", 1)[1], max_id=last_id, limit=40)
+                elif key.startswith("hashtag:"): data = self.mastodon.timeline_hashtag(key.split(":", 1)[1], max_id=last_id, limit=40)
+                elif key.startswith("list:"): data = self.mastodon.timeline_list(key.split(":", 1)[1], max_id=last_id, limit=40)
                 else: data = []
                 
                 self.timelines_data[key].extend(data)
@@ -1252,6 +1896,8 @@ class ThriveFrame(wx.Frame):
             elif timeline == "mentions": data = [n["status"] for n in self.mastodon.notifications(types=["mention"], limit=40) if n.get("status")]
             elif timeline.startswith("user:"): data = self.mastodon.account_statuses(timeline.split(":", 1)[1], limit=40)
             elif timeline.startswith("search:"): data = self.mastodon.search_v2(timeline.split(":", 1)[1], result_type="statuses").get("statuses", [])
+            elif timeline.startswith("hashtag:"): data = self.mastodon.timeline_hashtag(timeline.split(":", 1)[1], limit=40)
+            elif timeline.startswith("list:"): data = self.mastodon.timeline_list(timeline.split(":", 1)[1], limit=40)
             else: data = []
             
             self.timelines_data[timeline] = data
