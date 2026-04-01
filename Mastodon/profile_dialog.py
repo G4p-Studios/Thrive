@@ -1,4 +1,5 @@
 import wx
+import webbrowser
 from utils import strip_html
 
 # --- Dark Mode for MSW ---
@@ -80,11 +81,16 @@ except (ImportError, ModuleNotFoundError):
 # --- End of Dark Mode Logic ---
 
 class ViewProfileDialog(wx.Dialog):
-	def __init__(self, parent, account):
+	def __init__(self, parent, account, mastodon=None, me=None):
 		display_name = account.get("display_name", "")
 		acct = account.get("acct", "")
 		title = f"Profile for {display_name} ({acct})"
-		super().__init__(parent, title=title, size=(600, 400))
+		super().__init__(parent, title=title, size=(600, 500))
+
+		self.account = account
+		self.mastodon = mastodon
+		self.me = me
+		self.relationship = None
 
 		username = account.get("username", "")
 		bio = strip_html(account.get("note", ""))
@@ -108,9 +114,59 @@ Created: {created_at}
 Last post: {last_post}
 Website: {website}"""
 
-		self.text = wx.TextCtrl(self, value=info, style=wx.TE_MULTILINE | wx.TE_READONLY)
-		self.close_button = wx.Button(self, label="&Close",id=wx.ID_CANCEL)
+		# Get relationship info
+		if self.mastodon and self.me and account.get('id') != self.me.get('id'):
+			try:
+				rels = self.mastodon.account_relationships(account['id'])
+				self.relationship = rels[0] if rels else None
+				if self.relationship:
+					rel_info = []
+					if self.relationship.get('following'): rel_info.append("You follow this user")
+					if self.relationship.get('followed_by'): rel_info.append("This user follows you")
+					if self.relationship.get('blocking'): rel_info.append("You have blocked this user")
+					if self.relationship.get('muting'): rel_info.append("You have muted this user")
+					if self.relationship.get('requested'): rel_info.append("Follow request pending")
+					if rel_info:
+						info += "\n\nRelationship:\n" + "\n".join(rel_info)
+			except Exception:
+				pass
+
+		self.panel = wx.Panel(self)
+		sizer = wx.BoxSizer(wx.VERTICAL)
+
+		self.text = wx.TextCtrl(self.panel, value=info, style=wx.TE_MULTILINE | wx.TE_READONLY)
+		sizer.Add(self.text, 1, wx.ALL | wx.EXPAND, 10)
+
+		# Action buttons
+		btn_sizer = wx.BoxSizer(wx.HORIZONTAL)
+		
+		if self.mastodon and self.me and account.get('id') != self.me.get('id'):
+			follow_label = "Un&follow" if (self.relationship and self.relationship.get('following')) else "&Follow"
+			self.follow_button = wx.Button(self.panel, label=follow_label)
+			self.follow_button.Bind(wx.EVT_BUTTON, self.on_follow)
+			btn_sizer.Add(self.follow_button, 0, wx.ALL, 5)
+
+			mute_label = "Un&mute" if (self.relationship and self.relationship.get('muting')) else "&Mute"
+			self.mute_button = wx.Button(self.panel, label=mute_label)
+			self.mute_button.Bind(wx.EVT_BUTTON, self.on_mute)
+			btn_sizer.Add(self.mute_button, 0, wx.ALL, 5)
+
+			block_label = "Un&block" if (self.relationship and self.relationship.get('blocking')) else "&Block"
+			self.block_button = wx.Button(self.panel, label=block_label)
+			self.block_button.Bind(wx.EVT_BUTTON, self.on_block)
+			btn_sizer.Add(self.block_button, 0, wx.ALL, 5)
+
+		self.open_url_button = wx.Button(self.panel, label="Open in &Browser")
+		self.open_url_button.Bind(wx.EVT_BUTTON, self.on_open_url)
+		btn_sizer.Add(self.open_url_button, 0, wx.ALL, 5)
+
+		btn_sizer.AddStretchSpacer()
+		self.close_button = wx.Button(self.panel, label="&Close", id=wx.ID_CANCEL)
 		self.close_button.Bind(wx.EVT_CLOSE, lambda e: self.Close())
+		btn_sizer.Add(self.close_button, 0, wx.ALL, 5)
+
+		sizer.Add(btn_sizer, 0, wx.EXPAND | wx.ALL, 5)
+		self.panel.SetSizer(sizer)
 
 		# --- Conditional Dark Mode ---
 		if is_windows_dark_mode():
@@ -120,14 +176,60 @@ Website: {website}"""
 			dark_mode_manager.enable(self)
 
 			self.SetBackgroundColour(dark_color)
+			self.panel.SetBackgroundColour(dark_color)
 			self.text.SetBackgroundColour(dark_color)
 			self.text.SetForegroundColour(light_text_color)
-			self.close_button.SetBackgroundColour(dark_color)
-			self.close_button.SetForegroundColour(light_text_color)
+			for child in self.panel.GetChildren():
+				if isinstance(child, wx.Button):
+					child.SetBackgroundColour(dark_color)
+					child.SetForegroundColour(light_text_color)
 
-		sizer = wx.BoxSizer(wx.VERTICAL)
-		sizer.Add(self.text, 1, wx.ALL | wx.EXPAND, 10)
-		sizer.Add(self.close_button, 0, wx.ALL | wx.ALIGN_RIGHT, 10)
-
-		self.SetSizer(sizer)
 		self.text.SetFocus()
+
+	def on_follow(self, event):
+		if not self.mastodon: return
+		try:
+			if self.relationship and self.relationship.get('following'):
+				if wx.MessageBox(f"Unfollow {self.account.get('display_name', '')}?", "Confirm", wx.YES_NO | wx.ICON_QUESTION) == wx.YES:
+					self.mastodon.account_unfollow(self.account['id'])
+					self.relationship['following'] = False
+					self.follow_button.SetLabel("&Follow")
+			else:
+				self.mastodon.account_follow(self.account['id'])
+				if self.relationship: self.relationship['following'] = True
+				self.follow_button.SetLabel("Un&follow")
+		except Exception as e: wx.MessageBox(f"Error: {e}", "Follow Error")
+
+	def on_mute(self, event):
+		if not self.mastodon: return
+		try:
+			if self.relationship and self.relationship.get('muting'):
+				self.mastodon.account_unmute(self.account['id'])
+				self.relationship['muting'] = False
+				self.mute_button.SetLabel("&Mute")
+			else:
+				self.mastodon.account_mute(self.account['id'])
+				if self.relationship: self.relationship['muting'] = True
+				self.mute_button.SetLabel("Un&mute")
+		except Exception as e: wx.MessageBox(f"Error: {e}", "Mute Error")
+
+	def on_block(self, event):
+		if not self.mastodon: return
+		try:
+			display = self.account.get('display_name', '')
+			if self.relationship and self.relationship.get('blocking'):
+				if wx.MessageBox(f"Unblock {display}?", "Confirm", wx.YES_NO | wx.ICON_QUESTION) == wx.YES:
+					self.mastodon.account_unblock(self.account['id'])
+					self.relationship['blocking'] = False
+					self.block_button.SetLabel("&Block")
+			else:
+				if wx.MessageBox(f"Block {display}?", "Confirm", wx.YES_NO | wx.ICON_QUESTION) == wx.YES:
+					self.mastodon.account_block(self.account['id'])
+					if self.relationship: self.relationship['blocking'] = True
+					self.block_button.SetLabel("Un&block")
+		except Exception as e: wx.MessageBox(f"Error: {e}", "Block Error")
+
+	def on_open_url(self, event):
+		url = self.account.get('url', '')
+		if url:
+			webbrowser.open(url)

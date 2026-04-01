@@ -10,6 +10,11 @@ from sound_lib.main import BassError
 from easysettings import EasySettings
 import main_frame
 
+try:
+    import pyperclip
+except ImportError:
+    pyperclip = None
+
 # --- Dark Mode for MSW ---
 try:
     import ctypes
@@ -226,10 +231,17 @@ Language: {language}"""
 		self.reply_button = wx.Button(self.panel, label="&Reply")
 		self.boost_button = wx.Button(self.panel, label="Un&boost" if self.status["reblogged"] else "&Boost")
 		self.fav_button = wx.Button(self.panel, label="Un&favourite" if self.status["favourited"] else "&Favourite")
-		self.links_button = wx.Button(self.panel, label="View &Links")
+		self.bookmark_button = wx.Button(self.panel, label="Unboo&kmark" if self.status.get("bookmarked") else "Boo&kmark")
+		self.copy_button = wx.Button(self.panel, label="&Copy Text")
+		self.open_url_button = wx.Button(self.panel, label="Open UR&L")
+		self.thread_button = wx.Button(self.panel, label="View &Thread")
+		self.links_button = wx.Button(self.panel, label="View Lin&ks")
 		self.profile_button = wx.Button(self.panel, label=f"View &Profile of {display_name}")
-		self.take_down_button = wx.Button(self.panel, label="&Take down")
-		self.close_button = wx.Button(self.panel, id=wx.ID_CANCEL, label="&Close")
+		if self.status['account']['id'] == self.me['id']:
+			self.edit_button = wx.Button(self.panel, label="&Edit")
+			self.pin_button = wx.Button(self.panel, label="Un&pin" if self.status.get("pinned") else "&Pin")
+		self.take_down_button = wx.Button(self.panel, label="Take &down")
+		self.close_button = wx.Button(self.panel, id=wx.ID_CANCEL, label="C&lose")
 
 		if not self.links:
 			self.links_button.Disable()
@@ -251,24 +263,39 @@ Language: {language}"""
 			for widget in [self.content_box, self.details_box]:
 				widget.SetBackgroundColour(self.dark_color)
 				widget.SetForegroundColour(self.light_text_color)
-			for btn in [self.reply_button, self.boost_button, self.fav_button, self.links_button, self.profile_button, self.take_down_button, self.close_button]:
+			all_buttons = [self.reply_button, self.boost_button, self.fav_button, self.bookmark_button, self.copy_button, self.open_url_button, self.thread_button, self.links_button, self.profile_button, self.take_down_button, self.close_button]
+			if self.status['account']['id'] == self.me['id']:
+				all_buttons.extend([self.edit_button, self.pin_button])
+			for btn in all_buttons:
 				btn.SetBackgroundColour(self.dark_color)
 				btn.SetForegroundColour(self.light_text_color)
 			
 		self.reply_button.Bind(wx.EVT_BUTTON, self.reply)
 		self.boost_button.Bind(wx.EVT_BUTTON, self.toggle_boost)
 		self.fav_button.Bind(wx.EVT_BUTTON, self.toggle_fav)
+		self.bookmark_button.Bind(wx.EVT_BUTTON, self.toggle_bookmark)
+		self.copy_button.Bind(wx.EVT_BUTTON, self.on_copy_text)
+		self.open_url_button.Bind(wx.EVT_BUTTON, self.on_open_url)
+		self.thread_button.Bind(wx.EVT_BUTTON, self.on_view_thread)
 		self.links_button.Bind(wx.EVT_BUTTON, self.on_view_links)
 		self.take_down_button.Bind(wx.EVT_BUTTON, self.on_take_down)
-		self.profile_button.Bind(wx.EVT_BUTTON, lambda e: ViewProfileDialog(self, self.account).ShowModal())
+		self.profile_button.Bind(wx.EVT_BUTTON, lambda e: ViewProfileDialog(self, self.account, self.mastodon, self.me).ShowModal())
 
 
 		btns = wx.BoxSizer(wx.HORIZONTAL)
 		btns.Add(self.reply_button, 0, wx.ALL, 5)
 		btns.Add(self.boost_button, 0, wx.ALL, 5)
 		btns.Add(self.fav_button, 0, wx.ALL, 5)
+		btns.Add(self.bookmark_button, 0, wx.ALL, 5)
+		btns.Add(self.copy_button, 0, wx.ALL, 5)
+		btns.Add(self.open_url_button, 0, wx.ALL, 5)
+		btns.Add(self.thread_button, 0, wx.ALL, 5)
 		btns.Add(self.links_button, 0, wx.ALL, 5)
 		if self.status['account']['id'] == self.me['id']:
+			self.edit_button.Bind(wx.EVT_BUTTON, self.on_edit)
+			self.pin_button.Bind(wx.EVT_BUTTON, self.on_toggle_pin)
+			btns.Add(self.edit_button, 0, wx.ALL, 5)
+			btns.Add(self.pin_button, 0, wx.ALL, 5)
 			btns.Add(self.take_down_button, 0, wx.ALL, 5)
 		btns.AddStretchSpacer()
 		btns.Add(self.profile_button, 0, wx.ALL, 5)
@@ -504,3 +531,112 @@ Language: {language}"""
 			self.status["favourited"] = not self.status["favourited"]
 		except Exception as e:
 			wx.MessageBox(f"Error: {e}", "Favourite Error")
+
+	def toggle_bookmark(self, event):
+		try:
+			if self.status.get("bookmarked"):
+				self.mastodon.status_unbookmark(self.status["id"])
+				self.bookmark_button.SetLabel("Boo&kmark")
+				self.status["bookmarked"] = False
+			else:
+				self.mastodon.status_bookmark(self.status["id"])
+				self.bookmark_button.SetLabel("Unboo&kmark")
+				self.status["bookmarked"] = True
+		except Exception as e:
+			wx.MessageBox(f"Error: {e}", "Bookmark Error")
+
+	def on_copy_text(self, event):
+		content = strip_html((self.status.get('content', '') or '').replace('<br />', '\n').replace('<br>', '\n').replace('</p>', '\n\n')).strip()
+		if pyperclip:
+			pyperclip.copy(content)
+		else:
+			if wx.TheClipboard.Open():
+				wx.TheClipboard.SetData(wx.TextDataObject(content))
+				wx.TheClipboard.Close()
+
+	def on_open_url(self, event):
+		url = self.status.get('url') or self.status.get('uri')
+		if url:
+			webbrowser.open(url)
+		else:
+			wx.MessageBox("No URL available.", "Error")
+
+	def on_view_thread(self, event):
+		try:
+			context = self.mastodon.status_context(self.status['id'])
+			ancestors = context.get('ancestors', [])
+			descendants = context.get('descendants', [])
+			thread = ancestors + [self.status] + descendants
+			# Display thread in a simple dialog
+			dlg = wx.Dialog(self, title="Thread View", size=(600, 500))
+			panel = wx.Panel(dlg)
+			sizer = wx.BoxSizer(wx.VERTICAL)
+			thread_list = wx.ListBox(panel, style=wx.LB_SINGLE, size=(-1, 350))
+			for i, post in enumerate(thread):
+				author = post['account'].get('display_name') or post['account'].get('username', '')
+				content = strip_html((post.get('content', '') or '').replace('<br />', '\n').replace('<br>', '\n').replace('</p>', ' ')).strip()[:200]
+				prefix = ">>> " if post['id'] == self.status['id'] else ""
+				thread_list.Append(f"{prefix}{author}: {content}")
+			sizer.Add(thread_list, 1, wx.EXPAND | wx.ALL, 10)
+			close_btn = wx.Button(panel, id=wx.ID_CANCEL, label="&Close")
+			sizer.Add(close_btn, 0, wx.ALIGN_RIGHT | wx.ALL, 10)
+			panel.SetSizer(sizer)
+			dlg.ShowModal()
+			dlg.Destroy()
+		except Exception as e:
+			wx.MessageBox(f"Error loading thread: {e}", "Thread Error")
+
+	def on_edit(self, event):
+		content = strip_html((self.status.get('content', '') or '').replace('<br />', '\n').replace('<br>', '\n').replace('</p>', '\n\n')).strip()
+		dialog = wx.Dialog(self, title="Edit Post", size=(500, 300))
+		panel = wx.Panel(dialog)
+		vbox = wx.BoxSizer(wx.VERTICAL)
+		edit_text = wx.TextCtrl(panel, style=wx.TE_MULTILINE, size=(480, 150))
+		edit_text.SetValue(content)
+		edit_text.SetInsertionPointEnd()
+		spoiler_label = wx.StaticText(panel, label="Content &Warning:")
+		spoiler_input = wx.TextCtrl(panel, size=(480, 30))
+		if self.status.get('spoiler_text'):
+			spoiler_input.SetValue(self.status['spoiler_text'])
+		save_button = wx.Button(panel, label="&Save")
+		cancel_button = wx.Button(panel, id=wx.ID_CANCEL, label="&Cancel")
+		
+		def do_save(e):
+			new_text = edit_text.GetValue().strip()
+			if not new_text: return wx.MessageBox("Post cannot be empty.", "Error", wx.OK | wx.ICON_ERROR)
+			try:
+				spoiler = spoiler_input.GetValue().strip() or None
+				updated = self.mastodon.status_update(self.status['id'], new_text, spoiler_text=spoiler)
+				self.status = updated
+				processed = updated['content'].replace('<br />', '\n').replace('<br>', '\n').replace('</p>', '\n\n')
+				self.content_box.SetValue(strip_html(processed))
+				dialog.Close()
+			except Exception as ex: wx.MessageBox(f"Error editing post: {ex}", "Error", wx.OK | wx.ICON_ERROR)
+		
+		save_button.Bind(wx.EVT_BUTTON, do_save)
+		vbox.Add(wx.StaticText(panel, label="&Edit Post"), 0, wx.ALL, 10)
+		vbox.Add(edit_text, 1, wx.EXPAND | wx.LEFT | wx.RIGHT, 10)
+		vbox.Add(spoiler_label, 0, wx.LEFT | wx.RIGHT | wx.TOP, 10)
+		vbox.Add(spoiler_input, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
+		btns = wx.BoxSizer(wx.HORIZONTAL)
+		btns.Add(save_button, 0, wx.ALL, 5)
+		btns.Add(cancel_button, 0, wx.ALL, 5)
+		vbox.Add(btns, 0, wx.ALIGN_RIGHT | wx.RIGHT | wx.BOTTOM, 10)
+		panel.SetSizer(vbox)
+		dialog.ShowModal()
+		dialog.Destroy()
+
+	def on_toggle_pin(self, event):
+		try:
+			if self.status.get('pinned'):
+				self.mastodon.status_unpin(self.status['id'])
+				self.status['pinned'] = False
+				self.pin_button.SetLabel("&Pin")
+				wx.MessageBox("Post unpinned.", "Pin")
+			else:
+				self.mastodon.status_pin(self.status['id'])
+				self.status['pinned'] = True
+				self.pin_button.SetLabel("Un&pin")
+				wx.MessageBox("Post pinned.", "Pin")
+		except Exception as e:
+			wx.MessageBox(f"Error: {e}", "Pin Error")

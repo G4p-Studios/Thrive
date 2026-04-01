@@ -2,5 +2,7 @@ mastodon_py
 wxPython
 git+https://github.com/samtupy/sound_lib_macos_fixes.git
 easysettings[all]
+pyperclip
+python-dateutil
 pyinstaller
 pyinstaller_versionfile
