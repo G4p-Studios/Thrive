@@ -273,13 +273,17 @@ class ThriveFrame(wx.Frame):
         settings_menu = wx.Menu()
         settings_item = settings_menu.Append(wx.ID_ANY, "&Settings...\tAlt-S", "Open Settings")
         self.Bind(wx.EVT_MENU, self.open_settings, settings_item)
-        menubar.Append(settings_menu, "&Settings")
+        menubar.Append(settings_menu, "&Client")
         view_menu = wx.Menu()
         refresh_item = view_menu.Append(wx.ID_REFRESH, "&Refresh	F5", "Reload current timeline")
         self.Bind(wx.EVT_MENU, self.on_refresh, refresh_item)
         view_menu.AppendSeparator()
         self.show_avatars_item = view_menu.Append(wx.ID_ANY, "Show Profile Pictures", "Toggle display of profile pictures", kind=wx.ITEM_CHECK)
         self.Bind(wx.EVT_MENU, self.on_toggle_show_avatars, self.show_avatars_item)
+        view_menu.AppendSeparator()
+        find_item = view_menu.Append(wx.ID_ANY, "&Find in Timeline...\tCtrl+Shift+F", "Search within the current timeline")
+        view_menu.AppendSeparator()
+        scheduled_item = view_menu.Append(wx.ID_ANY, "&Scheduled Posts...", "View and manage scheduled posts")
         view_menu.AppendSeparator()
         explore_item = view_menu.Append(wx.ID_ANY, "E&xplore/Discover...", "Browse trending posts, hashtags, and links")
         lists_item = view_menu.Append(wx.ID_ANY, "&Lists...", "Manage and view lists")
@@ -290,6 +294,10 @@ class ThriveFrame(wx.Frame):
         blocked_item = view_menu.Append(wx.ID_ANY, "&Blocked Users", "View blocked users")
         muted_item = view_menu.Append(wx.ID_ANY, "M&uted Users", "View muted users")
         follow_requests_item = view_menu.Append(wx.ID_ANY, "Follow &Requests", "View pending follow requests")
+        view_menu.AppendSeparator()
+        edit_profile_item = view_menu.Append(wx.ID_ANY, "Edit &My Profile...", "Edit your display name, bio, and avatar")
+        self.Bind(wx.EVT_MENU, self.on_find_in_timeline, find_item)
+        self.Bind(wx.EVT_MENU, self.on_scheduled_posts, scheduled_item)
         self.Bind(wx.EVT_MENU, self.on_explore, explore_item)
         self.Bind(wx.EVT_MENU, self.on_lists, lists_item)
         self.Bind(wx.EVT_MENU, self.on_followed_hashtags, followed_hashtags_item)
@@ -298,6 +306,7 @@ class ThriveFrame(wx.Frame):
         self.Bind(wx.EVT_MENU, self.on_view_blocked, blocked_item)
         self.Bind(wx.EVT_MENU, self.on_view_muted, muted_item)
         self.Bind(wx.EVT_MENU, self.on_view_follow_requests, follow_requests_item)
+        self.Bind(wx.EVT_MENU, self.on_edit_my_profile, edit_profile_item)
         menubar.Append(view_menu, "&View")
         
         actions_menu = wx.Menu()
@@ -436,6 +445,24 @@ class ThriveFrame(wx.Frame):
             widget.Hide()
         self.media_sizer.Show(False)
 
+        self.schedule_toggle = wx.CheckBox(self.panel, label="Sc&hedule Post")
+        self.schedule_toggle.Bind(wx.EVT_CHECKBOX, self.on_toggle_schedule)
+        vbox.Add(self.schedule_toggle, 0, wx.ALL, 5)
+        
+        self.schedule_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        self.schedule_date_label = wx.StaticText(self.panel, label="Date (YYYY-MM-DD):")
+        self.schedule_date_input = wx.TextCtrl(self.panel, size=(120, -1))
+        self.schedule_time_label = wx.StaticText(self.panel, label="Time (HH:MM):")
+        self.schedule_time_input = wx.TextCtrl(self.panel, size=(80, -1))
+        self.schedule_sizer.Add(self.schedule_date_label, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
+        self.schedule_sizer.Add(self.schedule_date_input, 0, wx.RIGHT, 10)
+        self.schedule_sizer.Add(self.schedule_time_label, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
+        self.schedule_sizer.Add(self.schedule_time_input, 0)
+        self.schedule_widgets = [self.schedule_date_label, self.schedule_date_input, self.schedule_time_label, self.schedule_time_input]
+        vbox.Add(self.schedule_sizer, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 5)
+        for w in self.schedule_widgets:
+            w.Hide()
+        
         self.privacy_label = wx.StaticText(self.panel, label="P&rivacy:")
         self.privacy_choice = wx.Choice(self.panel, choices=self.privacy_options)
         self.privacy_choice.SetSelection(0)
@@ -474,7 +501,7 @@ class ThriveFrame(wx.Frame):
             dark_color = wx.Colour(40, 40, 40)
             light_text_color = wx.WHITE
             # Updated to include self.poll_widgets
-            for widget in [self.toot_label, self.cw_label, self.cw_toggle, self.poll_toggle, self.media_toggle, self.privacy_label, self.language_label, self.posts_label, *self.poll_widgets, self.alt_text_label]:
+            for widget in [self.toot_label, self.cw_label, self.cw_toggle, self.poll_toggle, self.media_toggle, self.schedule_toggle, self.privacy_label, self.language_label, self.posts_label, *self.poll_widgets, self.alt_text_label, *self.schedule_widgets]:
                 widget.SetForegroundColour(light_text_color)
                 widget.SetBackgroundColour(dark_color)
             self.poll_sizer.GetStaticBox().SetForegroundColour(light_text_color)
@@ -595,6 +622,25 @@ class ThriveFrame(wx.Frame):
         mute_convo_item = menu.Append(wx.ID_ANY, "Mute Con&versation")
         report_item = menu.Append(wx.ID_ANY, "&Report Post/User...")
         dm_item = menu.Append(wx.ID_ANY, "Send &Direct Message")
+        
+        # Notification-specific items
+        key = next((k for k, v in self.timeline_nodes.items() if v == self.timeline_tree.GetSelection()), None)
+        if key in ("notifications", "mentions"):
+            menu.AppendSeparator()
+            dismiss_notif_item = menu.Append(wx.ID_ANY, "D&ismiss Notification")
+            clear_notifs_item = menu.Append(wx.ID_ANY, "C&lear All Notifications")
+            self.Bind(wx.EVT_MENU, self.on_dismiss_notification, dismiss_notif_item)
+            self.Bind(wx.EVT_MENU, self.on_clear_all_notifications, clear_notifs_item)
+            # Accept/reject follow request
+            sel = self.posts_list.GetSelection()
+            if sel != wx.NOT_FOUND and sel < len(self.timelines_data.get(key, [])):
+                notif = self.timelines_data[key][sel]
+                if notif.get('type') == 'follow_request':
+                    accept_item = menu.Append(wx.ID_ANY, "&Accept Follow Request")
+                    reject_item = menu.Append(wx.ID_ANY, "Re&ject Follow Request")
+                    self.Bind(wx.EVT_MENU, self.on_accept_follow_request, accept_item)
+                    self.Bind(wx.EVT_MENU, self.on_reject_follow_request, reject_item)
+        
         self.Bind(wx.EVT_MENU, self.on_reply, reply_item)
         self.Bind(wx.EVT_MENU, self.on_boost, boost_item)
         self.Bind(wx.EVT_MENU, self.on_favourite, fav_item)
@@ -633,6 +679,7 @@ class ThriveFrame(wx.Frame):
             (wx.ACCEL_CTRL, ord('P'), self.on_pin_post),
             (wx.ACCEL_CTRL | wx.ACCEL_SHIFT, ord('U'), self.on_view_profile),
             (wx.ACCEL_CTRL | wx.ACCEL_SHIFT, ord('S'), self.on_search),
+            (wx.ACCEL_CTRL | wx.ACCEL_SHIFT, ord('F'), self.on_find_in_timeline),
             (wx.ACCEL_CTRL | wx.ACCEL_SHIFT, ord('L'), self.on_open_user_timeline),
         ]
         accel_entries = []
@@ -1041,6 +1088,296 @@ class ThriveFrame(wx.Frame):
             dlg.ShowModal()
             dlg.Destroy()
         except Exception as e: wx.MessageBox(f"Error: {e}", "Error")
+
+    def on_dismiss_notification(self, event):
+        key = next((k for k, v in self.timeline_nodes.items() if v == self.timeline_tree.GetSelection()), None)
+        if key not in ("notifications", "mentions"): return
+        sel = self.posts_list.GetSelection()
+        if sel == wx.NOT_FOUND: return
+        try:
+            notif = self.timelines_data[key][sel]
+            self.mastodon.notifications_dismiss(notif['id'])
+            self.timelines_data[key].pop(sel)
+            self.posts_list.Delete(sel)
+        except Exception as e: wx.MessageBox(f"Error: {e}", "Error")
+
+    def on_clear_all_notifications(self, event):
+        if wx.MessageBox("Clear all notifications? This cannot be undone.", "Confirm", wx.YES_NO | wx.ICON_QUESTION) != wx.YES:
+            return
+        try:
+            self.mastodon.notifications_clear()
+            self.timelines_data["notifications"] = []
+            self.timelines_data["mentions"] = []
+            key = next((k for k, v in self.timeline_nodes.items() if v == self.timeline_tree.GetSelection()), None)
+            if key in ("notifications", "mentions"):
+                self.posts_list.Clear()
+        except Exception as e: wx.MessageBox(f"Error: {e}", "Error")
+
+    def on_accept_follow_request(self, event):
+        key = next((k for k, v in self.timeline_nodes.items() if v == self.timeline_tree.GetSelection()), None)
+        sel = self.posts_list.GetSelection()
+        if sel == wx.NOT_FOUND or not key: return
+        try:
+            notif = self.timelines_data[key][sel]
+            account = notif.get('account', {})
+            self.mastodon.follow_request_authorize(account['id'])
+            wx.MessageBox(f"Accepted follow request from {account.get('display_name', account.get('username', ''))}.", "Follow Request")
+        except Exception as e: wx.MessageBox(f"Error: {e}", "Error")
+
+    def on_reject_follow_request(self, event):
+        key = next((k for k, v in self.timeline_nodes.items() if v == self.timeline_tree.GetSelection()), None)
+        sel = self.posts_list.GetSelection()
+        if sel == wx.NOT_FOUND or not key: return
+        try:
+            notif = self.timelines_data[key][sel]
+            account = notif.get('account', {})
+            self.mastodon.follow_request_reject(account['id'])
+            wx.MessageBox(f"Rejected follow request from {account.get('display_name', account.get('username', ''))}.", "Follow Request")
+        except Exception as e: wx.MessageBox(f"Error: {e}", "Error")
+
+    def on_edit_my_profile(self, event):
+        if not self.mastodon or not self.me: return
+        dlg = wx.Dialog(self, title="Edit My Profile", size=(550, 500))
+        panel = wx.Panel(dlg)
+        sizer = wx.BoxSizer(wx.VERTICAL)
+        
+        sizer.Add(wx.StaticText(panel, label="Display &Name:"), 0, wx.LEFT | wx.RIGHT | wx.TOP, 10)
+        name_input = wx.TextCtrl(panel, size=(-1, 30))
+        name_input.SetValue(self.me.get('display_name', ''))
+        sizer.Add(name_input, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
+        
+        sizer.Add(wx.StaticText(panel, label="&Bio:"), 0, wx.LEFT | wx.RIGHT, 10)
+        bio_input = wx.TextCtrl(panel, style=wx.TE_MULTILINE, size=(-1, 120))
+        # Get source bio (plain text) if available
+        source = self.me.get('source', {})
+        bio_input.SetValue(source.get('note', '') or strip_html(self.me.get('note', '')))
+        sizer.Add(bio_input, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
+        
+        # Metadata fields (up to 4)
+        sizer.Add(wx.StaticText(panel, label="Profile &Fields:"), 0, wx.LEFT | wx.RIGHT, 10)
+        fields = self.me.get('source', {}).get('fields', []) or self.me.get('fields', [])
+        field_inputs = []
+        for i in range(4):
+            fsizer = wx.BoxSizer(wx.HORIZONTAL)
+            name_lbl = wx.StaticText(panel, label=f"Label {i+1}:")
+            name_ctrl = wx.TextCtrl(panel, size=(150, -1))
+            val_lbl = wx.StaticText(panel, label="Value:")
+            val_ctrl = wx.TextCtrl(panel, size=(250, -1))
+            if i < len(fields):
+                name_ctrl.SetValue(fields[i].get('name', ''))
+                val_ctrl.SetValue(strip_html(fields[i].get('value', '')))
+            fsizer.Add(name_lbl, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 3)
+            fsizer.Add(name_ctrl, 0, wx.RIGHT, 8)
+            fsizer.Add(val_lbl, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 3)
+            fsizer.Add(val_ctrl, 1)
+            sizer.Add(fsizer, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
+            field_inputs.append((name_ctrl, val_ctrl))
+        
+        locked_check = wx.CheckBox(panel, label="&Lock account (require follow approval)")
+        locked_check.SetValue(self.me.get('locked', False))
+        sizer.Add(locked_check, 0, wx.LEFT | wx.RIGHT, 10)
+        
+        bot_check = wx.CheckBox(panel, label="Mark as &bot account")
+        bot_check.SetValue(self.me.get('bot', False))
+        sizer.Add(bot_check, 0, wx.LEFT | wx.RIGHT | wx.TOP, 10)
+        
+        btn_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        save_btn = wx.Button(panel, label="&Save")
+        cancel_btn = wx.Button(panel, id=wx.ID_CANCEL, label="&Cancel")
+        btn_sizer.Add(save_btn, 0, wx.ALL, 5)
+        btn_sizer.Add(cancel_btn, 0, wx.ALL, 5)
+        sizer.Add(btn_sizer, 0, wx.ALIGN_RIGHT | wx.ALL, 10)
+        panel.SetSizer(sizer)
+        
+        def on_save(e):
+            try:
+                new_fields = []
+                for name_ctrl, val_ctrl in field_inputs:
+                    n = name_ctrl.GetValue().strip()
+                    v = val_ctrl.GetValue().strip()
+                    if n or v:
+                        new_fields.append((n, v))
+                
+                self.mastodon.account_update_credentials(
+                    display_name=name_input.GetValue().strip(),
+                    note=bio_input.GetValue().strip(),
+                    locked=locked_check.IsChecked(),
+                    bot=bot_check.IsChecked(),
+                    fields=new_fields if new_fields else None,
+                )
+                self.me = self.mastodon.me()
+                wx.MessageBox("Profile updated successfully!", "Profile")
+                dlg.Close()
+            except Exception as ex:
+                wx.MessageBox(f"Error updating profile: {ex}", "Error")
+        
+        save_btn.Bind(wx.EVT_BUTTON, on_save)
+        
+        all_widgets = [name_input, bio_input, locked_check, bot_check, save_btn, cancel_btn]
+        all_labels = list(panel.GetChildren())
+        
+        if is_windows_dark_mode():
+            dc = wx.Colour(40, 40, 40)
+            lt = wx.WHITE
+            WxMswDarkMode().enable(dlg)
+            dlg.SetBackgroundColour(dc); panel.SetBackgroundColour(dc)
+            for w in panel.GetChildren():
+                w.SetBackgroundColour(dc)
+                w.SetForegroundColour(lt)
+        
+        dlg.ShowModal()
+        dlg.Destroy()
+
+    def on_find_in_timeline(self, event):
+        key = next((k for k, v in self.timeline_nodes.items() if v == self.timeline_tree.GetSelection()), None)
+        if not key or not self.timelines_data.get(key):
+            wx.MessageBox("No timeline selected or timeline is empty.", "Find")
+            return
+        dlg = wx.TextEntryDialog(self, "Search text:", "Find in Timeline")
+        if dlg.ShowModal() != wx.ID_OK:
+            dlg.Destroy()
+            return
+        query = dlg.GetValue().strip().lower()
+        dlg.Destroy()
+        if not query: return
+        
+        items = self.timelines_data[key]
+        results = []
+        for i, item in enumerate(items):
+            status = item.get("status") if key == "notifications" else item
+            if not status: continue
+            source = status.get('reblog') or status
+            content = strip_html((source.get('content', '') or '').replace('<br />', '\n').replace('<br>', '\n').replace('</p>', ' ')).strip().lower()
+            author = (source.get('account', {}).get('display_name', '') or source.get('account', {}).get('username', '')).lower()
+            spoiler = (source.get('spoiler_text', '') or '').lower()
+            if query in content or query in author or query in spoiler:
+                results.append((i, status))
+        
+        if not results:
+            wx.MessageBox(f"No posts found matching '{query}'.", "Find")
+            return
+        
+        if len(results) == 1:
+            self.posts_list.Select(results[0][0])
+            self.posts_list.EnsureVisible(results[0][0])
+            self.posts_list.SetFocus()
+            return
+        
+        result_dlg = wx.Dialog(self, title=f"Find Results ({len(results)} matches)", size=(600, 400))
+        panel = wx.Panel(result_dlg)
+        sizer = wx.BoxSizer(wx.VERTICAL)
+        results_listbox = wx.ListBox(panel, style=wx.LB_SINGLE, size=(-1, 300))
+        for idx, status in results:
+            source = status.get('reblog') or status
+            author = source.get('account', {}).get('display_name') or source.get('account', {}).get('username', '')
+            content = strip_html((source.get('content', '') or '').replace('<br />', '\n').replace('<br>', '\n').replace('</p>', ' ')).strip()[:120]
+            results_listbox.Append(f"{author}: {content}")
+        sizer.Add(results_listbox, 1, wx.EXPAND | wx.ALL, 10)
+        
+        btn_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        go_btn = wx.Button(panel, label="&Go to Post")
+        close_btn = wx.Button(panel, id=wx.ID_CANCEL, label="&Close")
+        btn_sizer.Add(go_btn, 0, wx.ALL, 5)
+        btn_sizer.Add(close_btn, 0, wx.ALL, 5)
+        sizer.Add(btn_sizer, 0, wx.ALIGN_RIGHT | wx.ALL, 5)
+        panel.SetSizer(sizer)
+        
+        def on_go(e):
+            sel = results_listbox.GetSelection()
+            if sel == wx.NOT_FOUND: return
+            idx = results[sel][0]
+            self.posts_list.Select(idx)
+            self.posts_list.EnsureVisible(idx)
+            self.posts_list.SetFocus()
+            result_dlg.Close()
+        
+        go_btn.Bind(wx.EVT_BUTTON, on_go)
+        results_listbox.Bind(wx.EVT_LISTBOX_DCLICK, on_go)
+        
+        if is_windows_dark_mode():
+            dc = wx.Colour(40, 40, 40)
+            lt = wx.WHITE
+            WxMswDarkMode().enable(result_dlg)
+            result_dlg.SetBackgroundColour(dc); panel.SetBackgroundColour(dc)
+            for w in [results_listbox, go_btn, close_btn]:
+                w.SetBackgroundColour(dc); w.SetForegroundColour(lt)
+        
+        result_dlg.ShowModal()
+        result_dlg.Destroy()
+
+    def on_scheduled_posts(self, event):
+        dlg = wx.Dialog(self, title="Scheduled Posts", size=(600, 400))
+        panel = wx.Panel(dlg)
+        sizer = wx.BoxSizer(wx.VERTICAL)
+        scheduled_listbox = wx.ListBox(panel, style=wx.LB_SINGLE, size=(-1, 280))
+        sizer.Add(scheduled_listbox, 1, wx.EXPAND | wx.ALL, 10)
+        
+        scheduled = []
+        try:
+            scheduled = self.mastodon.scheduled_statuses()
+            for s in scheduled:
+                sched_time = s.get('scheduled_at', '')
+                if hasattr(sched_time, 'strftime'):
+                    sched_time = sched_time.strftime('%Y-%m-%d %H:%M')
+                params = s.get('params', {})
+                text = params.get('text', '')[:100]
+                scheduled_listbox.Append(f"[{sched_time}] {text}")
+        except Exception as e:
+            wx.MessageBox(f"Error loading scheduled posts: {e}", "Error")
+        
+        btn_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        edit_btn = wx.Button(panel, label="&Edit Time")
+        delete_btn = wx.Button(panel, label="&Delete")
+        close_btn = wx.Button(panel, id=wx.ID_CANCEL, label="&Close")
+        btn_sizer.Add(edit_btn, 0, wx.ALL, 5)
+        btn_sizer.Add(delete_btn, 0, wx.ALL, 5)
+        btn_sizer.Add(close_btn, 0, wx.ALL, 5)
+        sizer.Add(btn_sizer, 0, wx.ALIGN_RIGHT | wx.ALL, 5)
+        panel.SetSizer(sizer)
+        
+        def on_edit_time(e):
+            sel = scheduled_listbox.GetSelection()
+            if sel == wx.NOT_FOUND: return
+            s = scheduled[sel]
+            time_dlg = wx.TextEntryDialog(dlg, "New scheduled time (YYYY-MM-DD HH:MM):", "Reschedule")
+            if time_dlg.ShowModal() == wx.ID_OK:
+                try:
+                    from datetime import datetime, timezone
+                    new_time = datetime.strptime(time_dlg.GetValue().strip(), "%Y-%m-%d %H:%M").replace(tzinfo=timezone.utc)
+                    self.mastodon.scheduled_status_update(s['id'], scheduled_at=new_time)
+                    scheduled[sel]['scheduled_at'] = new_time
+                    params = s.get('params', {})
+                    text = params.get('text', '')[:100]
+                    scheduled_listbox.SetString(sel, f"[{new_time.strftime('%Y-%m-%d %H:%M')}] {text}")
+                except ValueError:
+                    wx.MessageBox("Invalid format. Use YYYY-MM-DD HH:MM.", "Error")
+                except Exception as ex:
+                    wx.MessageBox(f"Error: {ex}", "Error")
+            time_dlg.Destroy()
+        
+        def on_delete_scheduled(e):
+            sel = scheduled_listbox.GetSelection()
+            if sel == wx.NOT_FOUND: return
+            if wx.MessageBox("Delete this scheduled post?", "Confirm", wx.YES_NO | wx.ICON_QUESTION) == wx.YES:
+                try:
+                    self.mastodon.scheduled_status_delete(scheduled[sel]['id'])
+                    scheduled.pop(sel)
+                    scheduled_listbox.Delete(sel)
+                except Exception as ex: wx.MessageBox(f"Error: {ex}", "Error")
+        
+        edit_btn.Bind(wx.EVT_BUTTON, on_edit_time)
+        delete_btn.Bind(wx.EVT_BUTTON, on_delete_scheduled)
+        
+        if is_windows_dark_mode():
+            dc = wx.Colour(40, 40, 40)
+            lt = wx.WHITE
+            WxMswDarkMode().enable(dlg)
+            dlg.SetBackgroundColour(dc); panel.SetBackgroundColour(dc)
+            for w in [scheduled_listbox, edit_btn, delete_btn, close_btn]:
+                w.SetBackgroundColour(dc); w.SetForegroundColour(lt)
+        
+        dlg.ShowModal()
+        dlg.Destroy()
 
     def on_explore(self, event):
         dlg = wx.Dialog(self, title="Explore / Discover", size=(700, 500))
@@ -1734,6 +2071,12 @@ class ThriveFrame(wx.Frame):
         self.media_sizer.Show(show)
         self.panel.Layout()
 
+    def on_toggle_schedule(self, event):
+        show = self.schedule_toggle.IsChecked()
+        for widget in self.schedule_widgets:
+            widget.Show(show)
+        self.panel.Layout()
+
     def on_post_activated(self, event): self.show_post_details()
 
     def on_post(self, event):
@@ -1747,16 +2090,31 @@ class ThriveFrame(wx.Frame):
             if len(options) < 2: return wx.MessageBox("A poll must have at least two options.", "Poll Error", wx.OK | wx.ICON_ERROR)
             poll_data = {'options': options, 'expires_in': self.poll_duration_seconds[self.poll_duration_choice.GetSelection()], 'multiple': self.poll_multiple_choice.IsChecked()}
         if not status_text and not poll_data and not self.media_files: return wx.MessageBox("Cannot post empty status.", "Error", wx.OK | wx.ICON_ERROR)
+        scheduled_at = None
+        if self.schedule_toggle.IsChecked():
+            date_str = self.schedule_date_input.GetValue().strip()
+            time_str = self.schedule_time_input.GetValue().strip()
+            if not date_str or not time_str:
+                return wx.MessageBox("Please enter both date (YYYY-MM-DD) and time (HH:MM) for scheduling.", "Schedule Error", wx.OK | wx.ICON_ERROR)
+            try:
+                from datetime import datetime, timezone
+                scheduled_at = datetime.strptime(f"{date_str} {time_str}", "%Y-%m-%d %H:%M").replace(tzinfo=timezone.utc)
+            except ValueError:
+                return wx.MessageBox("Invalid date/time format. Use YYYY-MM-DD and HH:MM.", "Schedule Error", wx.OK | wx.ICON_ERROR)
         try:
             media_ids = []
             for mf in self.media_files:
                 media = self.mastodon.media_post(mf["path"], description=mf.get("alt_text") or None)
                 media_ids.append(media)
-            self.mastodon.status_post(status_text, spoiler_text=spoiler, visibility=visibility, poll=poll_data, media_ids=media_ids if media_ids else None, language=language)
-            if tootsnd: tootsnd.play()
+            self.mastodon.status_post(status_text, spoiler_text=spoiler, visibility=visibility, poll=poll_data, media_ids=media_ids if media_ids else None, language=language, scheduled_at=scheduled_at)
+            if scheduled_at:
+                wx.MessageBox(f"Post scheduled for {scheduled_at.strftime('%Y-%m-%d %H:%M')} UTC.", "Scheduled")
+            elif tootsnd: tootsnd.play()
             self.toot_input.SetValue(""); self.cw_input.SetValue(""); self.cw_toggle.SetValue(False); self.on_toggle_cw(None)
             self.media_files.clear(); self.media_list.Clear(); self.alt_text_input.SetValue("")
             self.media_toggle.SetValue(False); self.on_toggle_media(None)
+            self.schedule_toggle.SetValue(False); self.on_toggle_schedule(None)
+            self.schedule_date_input.SetValue(""); self.schedule_time_input.SetValue("")
             if poll_data:
                 self.poll_toggle.SetValue(False); [opt.SetValue("") for opt in self.poll_option_inputs]; self.poll_duration_choice.SetSelection(5); self.poll_multiple_choice.SetValue(False); self.on_toggle_poll(None)
         except Exception as e: wx.MessageBox(f"Error: {e}", "Post Error")
