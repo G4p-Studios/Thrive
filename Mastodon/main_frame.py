@@ -295,6 +295,9 @@ class ThriveFrame(wx.Frame):
         lists_item = view_menu.Append(wx.ID_ANY, "&Lists...", "Manage and view lists")
         followed_hashtags_item = view_menu.Append(wx.ID_ANY, "Followed &Hashtags...", "View and manage followed hashtags")
         view_menu.AppendSeparator()
+        view_favourites_item = view_menu.Append(wx.ID_ANY, "Fav&ourites\tCtrl+Alt+K", "View your favourited posts")
+        view_bookmarks_item = view_menu.Append(wx.ID_ANY, "Boo&kmarks\tCtrl+Alt+B", "View your bookmarked posts")
+        view_menu.AppendSeparator()
         followers_item = view_menu.Append(wx.ID_ANY, "My &Followers\tCtrl+[", "View your followers")
         following_item = view_menu.Append(wx.ID_ANY, "My F&ollowing\tCtrl+]\tCtrl+]", "View who you follow")
         blocked_item = view_menu.Append(wx.ID_ANY, "&Blocked Users", "View blocked users")
@@ -309,6 +312,8 @@ class ThriveFrame(wx.Frame):
         self.Bind(wx.EVT_MENU, self.on_explore, explore_item)
         self.Bind(wx.EVT_MENU, self.on_lists, lists_item)
         self.Bind(wx.EVT_MENU, self.on_followed_hashtags, followed_hashtags_item)
+        self.Bind(wx.EVT_MENU, self.on_view_favourites_timeline, view_favourites_item)
+        self.Bind(wx.EVT_MENU, self.on_view_bookmarks_timeline, view_bookmarks_item)
         self.Bind(wx.EVT_MENU, self.on_view_followers, followers_item)
         self.Bind(wx.EVT_MENU, self.on_view_following, following_item)
         self.Bind(wx.EVT_MENU, self.on_view_blocked, blocked_item)
@@ -1165,6 +1170,13 @@ class ThriveFrame(wx.Frame):
             self.mastodon.follow_request_reject(account['id'])
             wx.MessageBox(f"Rejected follow request from {account.get('display_name', account.get('username', ''))}.", "Follow Request")
         except Exception as e: wx.MessageBox(f"Error: {e}", "Error")
+
+    def on_view_favourites_timeline(self, event):
+        if favoritessnd: favoritessnd.play()
+        self.timeline_tree.SelectItem(self.timeline_nodes.get("favourites", self.timeline_tree.GetSelection()))
+
+    def on_view_bookmarks_timeline(self, event):
+        self.timeline_tree.SelectItem(self.timeline_nodes.get("bookmarks", self.timeline_tree.GetSelection()))
 
     def on_instance_info(self, event):
         try:
@@ -2281,11 +2293,10 @@ Description:
         # Ctrl+Alt (no shift)
         if ctrl and alt and not shift:
             if kc == ord('K'):
-                if favoritessnd: favoritessnd.play()
-                self.timeline_tree.SelectItem(self.timeline_nodes.get("favourites", self.timeline_tree.GetSelection()))
+                self.on_view_favourites_timeline(event)
                 return
             if kc == ord('B'):
-                self.timeline_tree.SelectItem(self.timeline_nodes.get("bookmarks", self.timeline_tree.GetSelection()))
+                self.on_view_bookmarks_timeline(event)
                 return
 
         # Alt only (no ctrl)
