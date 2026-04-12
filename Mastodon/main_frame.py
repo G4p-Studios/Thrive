@@ -690,12 +690,18 @@ class ThriveFrame(wx.Frame):
     def on_reply(self, event):
         status, _ = self.get_selected_status()
         if not status: return
-        content = strip_html(status["content"].replace('<br />', '\n').replace('<br>', '\n').replace('</p>', '\n\n'))
-        reply_users, me_acct = "", self.me['acct']
-        author_acct = status['account']['acct']
-        if author_acct != me_acct: reply_users = f"@{author_acct} "
-        for i in content.split(" "):
-            if i.startswith("@") and i.strip('@') not in [me_acct, author_acct]: reply_users += i + " "
+        source = status.get('reblog') or status
+        me_acct = self.me['acct']
+        author_acct = source['account']['acct']
+        # Build mention list using the API mentions array for correct @user@instance handles
+        mentions = []
+        if author_acct != me_acct:
+            mentions.append(f"@{author_acct}")
+        for m in source.get('mentions', []):
+            acct = m.get('acct', '')
+            if acct and acct != me_acct and acct != author_acct:
+                mentions.append(f"@{acct}")
+        reply_users = " ".join(mentions)
         
         dialog = wx.Dialog(self, title="Reply to Post", size=(500, 300))
         panel = wx.Panel(dialog)
