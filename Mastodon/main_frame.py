@@ -774,7 +774,6 @@ class ThriveFrame(wx.Frame):
                     if row:
                         self.posts_list.Insert(row, 0, avatar_url)
                         self.queue_avatar_download(avatar_url)
-                if favoritessnd: favoritessnd.play()
             status["favourited"] = not status["favourited"]
         except Exception as e: wx.MessageBox(f"Error: {e}", "Favourite Error")
     
@@ -2282,6 +2281,7 @@ Description:
         # Ctrl+Alt (no shift)
         if ctrl and alt and not shift:
             if kc == ord('K'):
+                if favoritessnd: favoritessnd.play()
                 self.timeline_tree.SelectItem(self.timeline_nodes.get("favourites", self.timeline_tree.GetSelection()))
                 return
             if kc == ord('B'):
