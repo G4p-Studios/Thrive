@@ -211,7 +211,13 @@ sound_files = {
     "favsnd": "favorite.wav", "unfavsnd": "unfavorite.wav", "newtootsnd": "new_toot.wav",
     "dmsnd": "new_dm.wav", "mentionsnd": "new_mention.wav", "imagesnd": "image.wav",
     "mediasnd": "media.wav", "select_mentionsnd": "mention.wav", "pollsnd": "poll.wav",
-    "votesnd": "vote.wav", "notificationsnd": "new_notification.wav"
+    "votesnd": "vote.wav", "notificationsnd": "new_notification.wav",
+    "errorsnd": "error.wav", "maxsnd": "max.wav", "searchsnd": "new_search.wav",
+    "open_timelinesnd": "open_timeline.wav", "send_dmsnd": "send_dm.wav",
+    "followsnd": "follow.wav", "unfollowsnd": "unfollow.wav", "boundarysnd": "boundary.wav",
+    "close_timelinesnd": "close_timeline.wav",
+    "favoritessnd": "favorites.wav", "search_updatedsnd": "search_updated.wav",
+    "usersnd": "user.wav"
 }
 for name in sound_files: globals()[name] = None
 
@@ -281,21 +287,23 @@ class ThriveFrame(wx.Frame):
         self.show_avatars_item = view_menu.Append(wx.ID_ANY, "Show Profile Pictures", "Toggle display of profile pictures", kind=wx.ITEM_CHECK)
         self.Bind(wx.EVT_MENU, self.on_toggle_show_avatars, self.show_avatars_item)
         view_menu.AppendSeparator()
-        find_item = view_menu.Append(wx.ID_ANY, "&Find in Timeline...\tCtrl+Shift+F", "Search within the current timeline")
+        find_item = view_menu.Append(wx.ID_ANY, "&Find in Timeline...", "Search within the current timeline")
         view_menu.AppendSeparator()
         scheduled_item = view_menu.Append(wx.ID_ANY, "&Scheduled Posts...", "View and manage scheduled posts")
         view_menu.AppendSeparator()
-        explore_item = view_menu.Append(wx.ID_ANY, "E&xplore/Discover...", "Browse trending posts, hashtags, and links")
+        explore_item = view_menu.Append(wx.ID_ANY, "E&xplore/Discover...\tCtrl+T\tCtrl+T", "Browse trending posts, hashtags, and links")
         lists_item = view_menu.Append(wx.ID_ANY, "&Lists...", "Manage and view lists")
         followed_hashtags_item = view_menu.Append(wx.ID_ANY, "Followed &Hashtags...", "View and manage followed hashtags")
         view_menu.AppendSeparator()
-        followers_item = view_menu.Append(wx.ID_ANY, "My &Followers", "View your followers")
-        following_item = view_menu.Append(wx.ID_ANY, "My F&ollowing", "View who you follow")
+        followers_item = view_menu.Append(wx.ID_ANY, "My &Followers\tCtrl+[", "View your followers")
+        following_item = view_menu.Append(wx.ID_ANY, "My F&ollowing\tCtrl+]\tCtrl+]", "View who you follow")
         blocked_item = view_menu.Append(wx.ID_ANY, "&Blocked Users", "View blocked users")
         muted_item = view_menu.Append(wx.ID_ANY, "M&uted Users", "View muted users")
         follow_requests_item = view_menu.Append(wx.ID_ANY, "Follow &Requests", "View pending follow requests")
         view_menu.AppendSeparator()
         edit_profile_item = view_menu.Append(wx.ID_ANY, "Edit &My Profile...", "Edit your display name, bio, and avatar")
+        view_menu.AppendSeparator()
+        instance_info_item = view_menu.Append(wx.ID_ANY, "&Instance Info...\tCtrl+I", "View information about the Mastodon instance")
         self.Bind(wx.EVT_MENU, self.on_find_in_timeline, find_item)
         self.Bind(wx.EVT_MENU, self.on_scheduled_posts, scheduled_item)
         self.Bind(wx.EVT_MENU, self.on_explore, explore_item)
@@ -307,24 +315,27 @@ class ThriveFrame(wx.Frame):
         self.Bind(wx.EVT_MENU, self.on_view_muted, muted_item)
         self.Bind(wx.EVT_MENU, self.on_view_follow_requests, follow_requests_item)
         self.Bind(wx.EVT_MENU, self.on_edit_my_profile, edit_profile_item)
+        self.Bind(wx.EVT_MENU, self.on_instance_info, instance_info_item)
         menubar.Append(view_menu, "&View")
         
         actions_menu = wx.Menu()
+        compose_menu_item = actions_menu.Append(wx.ID_ANY, "Compose &New Post\tCtrl+N")
         reply_menu_item = actions_menu.Append(wx.ID_ANY, "&Reply\tCtrl+R")
         boost_menu_item = actions_menu.Append(wx.ID_ANY, "&Boost\tCtrl+Shift+R")
         fav_menu_item = actions_menu.Append(wx.ID_ANY, "&Favourite\tCtrl+F")
-        bookmark_menu_item = actions_menu.Append(wx.ID_ANY, "Boo&kmark\tCtrl+B")
+        bookmark_menu_item = actions_menu.Append(wx.ID_ANY, "Boo&kmark\tAlt+B")
         actions_menu.AppendSeparator()
-        copy_menu_item = actions_menu.Append(wx.ID_ANY, "&Copy Post Text\tCtrl+Shift+C")
-        open_url_menu_item = actions_menu.Append(wx.ID_ANY, "&Open Post URL\tCtrl+Shift+O")
-        view_thread_menu_item = actions_menu.Append(wx.ID_ANY, "View &Thread\tCtrl+T")
+        copy_menu_item = actions_menu.Append(wx.ID_ANY, "&Copy Post Text\tCtrl+C")
+        open_url_menu_item = actions_menu.Append(wx.ID_ANY, "&Open Post on Web\tAlt+W")
+        view_post_menu_item = actions_menu.Append(wx.ID_ANY, "&View Post Details\tAlt+V")
+        view_thread_menu_item = actions_menu.Append(wx.ID_ANY, "Get &Thread/Conversation\tCtrl+G")
         actions_menu.AppendSeparator()
-        follow_menu_item = actions_menu.Append(wx.ID_ANY, "Fo&llow/Unfollow User\tCtrl+L")
-        block_menu_item = actions_menu.Append(wx.ID_ANY, "B&lock/Unblock User\tCtrl+Shift+B")
-        mute_menu_item = actions_menu.Append(wx.ID_ANY, "&Mute/Unmute User\tCtrl+Shift+M")
+        follow_menu_item = actions_menu.Append(wx.ID_ANY, "Fo&llow User\tCtrl+L")
+        block_menu_item = actions_menu.Append(wx.ID_ANY, "B&lock User\tCtrl+B")
+        mute_menu_item = actions_menu.Append(wx.ID_ANY, "&Mute/Unmute User")
         actions_menu.AppendSeparator()
         edit_menu_item = actions_menu.Append(wx.ID_ANY, "&Edit Post\tCtrl+E")
-        pin_menu_item = actions_menu.Append(wx.ID_ANY, "&Pin/Unpin Post\tCtrl+P")
+        pin_menu_item = actions_menu.Append(wx.ID_ANY, "&Pin/Unpin Post")
         actions_menu.AppendSeparator()
         mute_convo_menu_item = actions_menu.Append(wx.ID_ANY, "Mute Con&versation")
         report_menu_item = actions_menu.Append(wx.ID_ANY, "&Report Post/User...")
@@ -335,16 +346,18 @@ class ThriveFrame(wx.Frame):
         view_history_menu_item = actions_menu.Append(wx.ID_ANY, "View Edit &History")
         actions_menu.AppendSeparator()
         profile_menu_item = actions_menu.Append(wx.ID_ANY, "View &User Profile\tCtrl+Shift+U")
-        search_menu_item = actions_menu.Append(wx.ID_ANY, "&Search\tCtrl+Shift+S")
-        user_timeline_menu_item = actions_menu.Append(wx.ID_ANY, "Open User Time&line\tCtrl+Shift+L")
-        dm_user_menu_item = actions_menu.Append(wx.ID_ANY, "Send &Direct Message")
-        
+        search_menu_item = actions_menu.Append(wx.ID_ANY, "&Search\tCtrl+/")
+        user_timeline_menu_item = actions_menu.Append(wx.ID_ANY, "Open User Time&line\tCtrl+U")
+        dm_user_menu_item = actions_menu.Append(wx.ID_ANY, "Send &Direct Message\tCtrl+D")
+
+        self.Bind(wx.EVT_MENU, self.on_focus_compose, compose_menu_item)
         self.Bind(wx.EVT_MENU, self.on_reply, reply_menu_item)
         self.Bind(wx.EVT_MENU, self.on_boost, boost_menu_item)
         self.Bind(wx.EVT_MENU, self.on_favourite, fav_menu_item)
         self.Bind(wx.EVT_MENU, self.on_bookmark, bookmark_menu_item)
         self.Bind(wx.EVT_MENU, self.on_copy_post, copy_menu_item)
         self.Bind(wx.EVT_MENU, self.on_open_post_url, open_url_menu_item)
+        self.Bind(wx.EVT_MENU, self.on_post_activated, view_post_menu_item)
         self.Bind(wx.EVT_MENU, self.on_view_thread, view_thread_menu_item)
         self.Bind(wx.EVT_MENU, self.on_follow_user, follow_menu_item)
         self.Bind(wx.EVT_MENU, self.on_block_user, block_menu_item)
@@ -367,24 +380,50 @@ class ThriveFrame(wx.Frame):
 
         vbox = wx.BoxSizer(wx.VERTICAL)
         self.toot_label = wx.StaticText(self.panel, label="&Create New Post")
-        self.toot_input = wx.TextCtrl(self.panel, style=wx.TE_MULTILINE, size=(780, 100))
-        self.cw_label = wx.StaticText(self.panel, label="Content w&arning title:")
-        self.cw_input = wx.TextCtrl(self.panel, size=(780, 30))
-        self.cw_toggle = wx.CheckBox(self.panel, label="Add Content &Warning")
-        self.cw_toggle.Bind(wx.EVT_CHECKBOX, self.on_toggle_cw)
+        self.toot_input = wx.TextCtrl(self.panel, style=wx.TE_MULTILINE, size=(-1, 80))
+        self.cw_label = wx.StaticText(self.panel, label="Content w&arning:")
+        self.cw_input = wx.TextCtrl(self.panel, size=(400, -1))
         self.cw_input.Hide()
         self.cw_label.Hide()
-        vbox.Add(self.toot_label, 0, wx.ALL | wx.EXPAND, 5)
+        vbox.Add(self.toot_label, 0, wx.LEFT | wx.RIGHT | wx.TOP, 5)
         vbox.Add(self.toot_input, 0, wx.ALL | wx.EXPAND, 5)
         vbox.Add(self.cw_label, 0, wx.LEFT | wx.RIGHT, 5)
-        vbox.Add(self.cw_input, 0, wx.ALL | wx.EXPAND, 5)
-        vbox.Add(self.cw_toggle, 0, wx.ALL, 5)
+        vbox.Add(self.cw_input, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 5)
 
-        self.poll_toggle = wx.CheckBox(self.panel, label="Create &Poll")
+        # Compact controls row: toggles, dropdowns, buttons all horizontal
+        controls_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        self.cw_toggle = wx.CheckBox(self.panel, label="C&W")
+        self.cw_toggle.Bind(wx.EVT_CHECKBOX, self.on_toggle_cw)
+        self.poll_toggle = wx.CheckBox(self.panel, label="&Poll")
         self.poll_toggle.Bind(wx.EVT_CHECKBOX, self.on_toggle_poll)
-        vbox.Add(self.poll_toggle, 0, wx.ALL, 5)
-        
-        # --- Poll UI Refactor to fix Parent Assertion ---
+        self.media_toggle = wx.CheckBox(self.panel, label="M&edia")
+        self.media_toggle.Bind(wx.EVT_CHECKBOX, self.on_toggle_media)
+        self.schedule_toggle = wx.CheckBox(self.panel, label="Sc&hedule")
+        self.schedule_toggle.Bind(wx.EVT_CHECKBOX, self.on_toggle_schedule)
+        self.privacy_label = wx.StaticText(self.panel, label="P&rivacy:")
+        self.privacy_choice = wx.Choice(self.panel, choices=self.privacy_options)
+        self.privacy_choice.SetSelection(0)
+        self.language_label = wx.StaticText(self.panel, label="&Lang:")
+        self.language_names = ["Default", "English", "Spanish", "French", "German", "Italian", "Portuguese", "Japanese", "Chinese", "Korean", "Russian", "Arabic", "Dutch", "Polish", "Swedish", "Turkish", "Indonesian", "Hindi", "Thai", "Vietnamese"]
+        self.language_codes = ["", "en", "es", "fr", "de", "it", "pt", "ja", "zh", "ko", "ru", "ar", "nl", "pl", "sv", "tr", "id", "hi", "th", "vi"]
+        self.language_choice = wx.Choice(self.panel, choices=self.language_names)
+        self.language_choice.SetSelection(0)
+        self.post_button = wx.Button(self.panel, label="&Post")
+        self.post_button.Bind(wx.EVT_BUTTON, self.on_post)
+        self.exit_button = wx.Button(self.panel, label="E&xit")
+        self.exit_button.Bind(wx.EVT_BUTTON, lambda e: self.Close())
+        for w in [self.cw_toggle, self.poll_toggle, self.media_toggle, self.schedule_toggle]:
+            controls_sizer.Add(w, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
+        controls_sizer.AddSpacer(10)
+        controls_sizer.Add(self.privacy_label, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 3)
+        controls_sizer.Add(self.privacy_choice, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 8)
+        controls_sizer.Add(self.language_label, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 3)
+        controls_sizer.Add(self.language_choice, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 8)
+        controls_sizer.AddStretchSpacer()
+        controls_sizer.Add(self.post_button, 0, wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, 5)
+        controls_sizer.Add(self.exit_button, 0, wx.ALIGN_CENTER_VERTICAL)
+        vbox.Add(controls_sizer, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 5)
+
         self.poll_sizer = wx.StaticBoxSizer(wx.VERTICAL, self.panel, "Poll Options")
         self.poll_widgets = []
 
@@ -414,10 +453,6 @@ class ThriveFrame(wx.Frame):
         self.poll_sizer.Show(False)
 
         # Media attachment UI
-        self.media_toggle = wx.CheckBox(self.panel, label="Add M&edia")
-        self.media_toggle.Bind(wx.EVT_CHECKBOX, self.on_toggle_media)
-        vbox.Add(self.media_toggle, 0, wx.ALL, 5)
-
         self.media_sizer = wx.StaticBoxSizer(wx.VERTICAL, self.panel, "Media Attachments")
         self.media_files = []
         self.media_list = wx.ListBox(self.panel, style=wx.LB_SINGLE, size=(-1, 60))
@@ -433,6 +468,8 @@ class ThriveFrame(wx.Frame):
         self.media_sizer.Add(self.alt_text_label, 0, wx.LEFT | wx.RIGHT | wx.TOP, 5)
         self.media_sizer.Add(self.alt_text_input, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 5)
         self.media_widgets = [self.media_list, self.add_media_button, self.remove_media_button, self.alt_text_label, self.alt_text_input]
+        # Media items that only show when files are present
+        self.media_file_widgets = [self.media_list, self.remove_media_button, self.alt_text_label, self.alt_text_input]
         
         self.add_media_button.Bind(wx.EVT_BUTTON, self.on_add_media)
         self.remove_media_button.Bind(wx.EVT_BUTTON, self.on_remove_media)
@@ -443,12 +480,10 @@ class ThriveFrame(wx.Frame):
 
         for widget in self.media_widgets:
             widget.Hide()
+            widget.Disable()
         self.media_sizer.Show(False)
 
-        self.schedule_toggle = wx.CheckBox(self.panel, label="Sc&hedule Post")
-        self.schedule_toggle.Bind(wx.EVT_CHECKBOX, self.on_toggle_schedule)
-        vbox.Add(self.schedule_toggle, 0, wx.ALL, 5)
-        
+        # Schedule UI
         self.schedule_sizer = wx.BoxSizer(wx.HORIZONTAL)
         self.schedule_date_label = wx.StaticText(self.panel, label="Date (YYYY-MM-DD):")
         self.schedule_date_input = wx.TextCtrl(self.panel, size=(120, -1))
@@ -462,19 +497,6 @@ class ThriveFrame(wx.Frame):
         vbox.Add(self.schedule_sizer, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 5)
         for w in self.schedule_widgets:
             w.Hide()
-        
-        self.privacy_label = wx.StaticText(self.panel, label="P&rivacy:")
-        self.privacy_choice = wx.Choice(self.panel, choices=self.privacy_options)
-        self.privacy_choice.SetSelection(0)
-        self.language_label = wx.StaticText(self.panel, label="Lan&guage:")
-        self.language_names = ["Default", "English", "Spanish", "French", "German", "Italian", "Portuguese", "Japanese", "Chinese", "Korean", "Russian", "Arabic", "Dutch", "Polish", "Swedish", "Turkish", "Indonesian", "Hindi", "Thai", "Vietnamese"]
-        self.language_codes = ["", "en", "es", "fr", "de", "it", "pt", "ja", "zh", "ko", "ru", "ar", "nl", "pl", "sv", "tr", "id", "hi", "th", "vi"]
-        self.language_choice = wx.Choice(self.panel, choices=self.language_names)
-        self.language_choice.SetSelection(0)
-        self.post_button = wx.Button(self.panel, label="&Post")
-        self.post_button.Bind(wx.EVT_BUTTON, self.on_post)
-        self.exit_button = wx.Button(self.panel, label="E&xit")
-        self.exit_button.Bind(wx.EVT_BUTTON, lambda e: self.Close())
 
         self.posts_label = wx.StaticText(self.panel, label="Timelines &List")
         self.timeline_tree = wx.TreeCtrl(self.panel, style=wx.TR_HAS_BUTTONS | wx.TR_HIDE_ROOT)
@@ -500,7 +522,6 @@ class ThriveFrame(wx.Frame):
         if is_windows_dark_mode():
             dark_color = wx.Colour(40, 40, 40)
             light_text_color = wx.WHITE
-            # Updated to include self.poll_widgets
             for widget in [self.toot_label, self.cw_label, self.cw_toggle, self.poll_toggle, self.media_toggle, self.schedule_toggle, self.privacy_label, self.language_label, self.posts_label, *self.poll_widgets, self.alt_text_label, *self.schedule_widgets]:
                 widget.SetForegroundColour(light_text_color)
                 widget.SetBackgroundColour(dark_color)
@@ -513,12 +534,6 @@ class ThriveFrame(wx.Frame):
         hbox = wx.BoxSizer(wx.HORIZONTAL)
         hbox.Add(self.timeline_tree, 0, wx.EXPAND | wx.ALL, 5)
         hbox.Add(self.posts_list, 1, wx.EXPAND | wx.ALL, 5)
-        vbox.Add(self.privacy_label, 0, wx.LEFT | wx.RIGHT | wx.TOP, 5)
-        vbox.Add(self.privacy_choice, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM | wx.EXPAND, 5)
-        vbox.Add(self.language_label, 0, wx.LEFT | wx.RIGHT | wx.TOP, 5)
-        vbox.Add(self.language_choice, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM | wx.EXPAND, 5)
-        vbox.Add(self.post_button, 0, wx.ALL | wx.CENTER, 5)
-        vbox.Add(self.exit_button, 0, wx.ALL | wx.CENTER, 5)
         vbox.Add(self.posts_label, 0, wx.ALL | wx.EXPAND, 5)
         vbox.Add(hbox, 1, wx.EXPAND, 0)
         self.panel.SetSizer(vbox)
@@ -593,26 +608,27 @@ class ThriveFrame(wx.Frame):
         boost_item = menu.Append(wx.ID_ANY, boost_label)
         fav_label = "Un&favourite\tCtrl+F" if status.get("favourited") else "&Favourite\tCtrl+F"
         fav_item = menu.Append(wx.ID_ANY, fav_label)
-        bookmark_label = "Un&bookmark\tCtrl+B" if source.get("bookmarked") else "Boo&kmark\tCtrl+B"
+        bookmark_label = "Un&bookmark\tAlt+B" if source.get("bookmarked") else "Boo&kmark\tAlt+B"
         bookmark_item = menu.Append(wx.ID_ANY, bookmark_label)
         menu.AppendSeparator()
-        copy_item = menu.Append(wx.ID_ANY, "&Copy Post Text\tCtrl+Shift+C")
-        open_url_item = menu.Append(wx.ID_ANY, "&Open Post URL\tCtrl+Shift+O")
-        thread_item = menu.Append(wx.ID_ANY, "View &Thread\tCtrl+T")
+        copy_item = menu.Append(wx.ID_ANY, "&Copy Post Text\tCtrl+C")
+        open_url_item = menu.Append(wx.ID_ANY, "&Open Post on Web\tAlt+W")
+        view_post_item = menu.Append(wx.ID_ANY, "&View Post Details\tAlt+V")
+        thread_item = menu.Append(wx.ID_ANY, "Get &Thread/Conversation\tCtrl+G")
         menu.AppendSeparator()
-        follow_item = menu.Append(wx.ID_ANY, "Fo&llow/Unfollow User\tCtrl+L")
-        block_item = menu.Append(wx.ID_ANY, "B&lock/Unblock User\tCtrl+Shift+B")
-        mute_item = menu.Append(wx.ID_ANY, "&Mute/Unmute User\tCtrl+Shift+M")
+        follow_item = menu.Append(wx.ID_ANY, "Fo&llow User\tCtrl+L")
+        block_item = menu.Append(wx.ID_ANY, "B&lock User\tCtrl+B")
+        mute_item = menu.Append(wx.ID_ANY, "&Mute/Unmute User")
         menu.AppendSeparator()
         if source.get('account', {}).get('id') == (self.me or {}).get('id'):
             edit_item = menu.Append(wx.ID_ANY, "&Edit Post\tCtrl+E")
-            pin_label = "Un&pin Post\tCtrl+P" if source.get("pinned") else "&Pin Post\tCtrl+P"
+            pin_label = "Un&pin Post" if source.get("pinned") else "&Pin Post"
             pin_item = menu.Append(wx.ID_ANY, pin_label)
             self.Bind(wx.EVT_MENU, self.on_edit_post, edit_item)
             self.Bind(wx.EVT_MENU, self.on_pin_post, pin_item)
             menu.AppendSeparator()
         profile_item = menu.Append(wx.ID_ANY, "View &User Profile\tCtrl+Shift+U")
-        user_tl_item = menu.Append(wx.ID_ANY, "Open User Time&line\tCtrl+Shift+L")
+        user_tl_item = menu.Append(wx.ID_ANY, "Open User Time&line\tCtrl+U")
         menu.AppendSeparator()
         view_media_item = menu.Append(wx.ID_ANY, "View M&edia Attachments")
         view_boosters_item = menu.Append(wx.ID_ANY, "View &Who Boosted")
@@ -621,7 +637,7 @@ class ThriveFrame(wx.Frame):
         menu.AppendSeparator()
         mute_convo_item = menu.Append(wx.ID_ANY, "Mute Con&versation")
         report_item = menu.Append(wx.ID_ANY, "&Report Post/User...")
-        dm_item = menu.Append(wx.ID_ANY, "Send &Direct Message")
+        dm_item = menu.Append(wx.ID_ANY, "Send &Direct Message\tCtrl+D")
         
         # Notification-specific items
         key = next((k for k, v in self.timeline_nodes.items() if v == self.timeline_tree.GetSelection()), None)
@@ -647,6 +663,7 @@ class ThriveFrame(wx.Frame):
         self.Bind(wx.EVT_MENU, self.on_bookmark, bookmark_item)
         self.Bind(wx.EVT_MENU, self.on_copy_post, copy_item)
         self.Bind(wx.EVT_MENU, self.on_open_post_url, open_url_item)
+        self.Bind(wx.EVT_MENU, self.on_post_activated, view_post_item)
         self.Bind(wx.EVT_MENU, self.on_view_thread, thread_item)
         self.Bind(wx.EVT_MENU, self.on_follow_user, follow_item)
         self.Bind(wx.EVT_MENU, self.on_block_user, block_item)
@@ -664,30 +681,11 @@ class ThriveFrame(wx.Frame):
         menu.Destroy()
 
     def setup_accelerators(self):
-        accel_defs = [
-            (wx.ACCEL_CTRL, ord('R'), self.on_reply),
-            (wx.ACCEL_CTRL | wx.ACCEL_SHIFT, ord('R'), self.on_boost),
-            (wx.ACCEL_CTRL, ord('F'), self.on_favourite),
-            (wx.ACCEL_CTRL, ord('B'), self.on_bookmark),
-            (wx.ACCEL_CTRL | wx.ACCEL_SHIFT, ord('C'), self.on_copy_post),
-            (wx.ACCEL_CTRL | wx.ACCEL_SHIFT, ord('O'), self.on_open_post_url),
-            (wx.ACCEL_CTRL, ord('T'), self.on_view_thread),
-            (wx.ACCEL_CTRL, ord('L'), self.on_follow_user),
-            (wx.ACCEL_CTRL | wx.ACCEL_SHIFT, ord('B'), self.on_block_user),
-            (wx.ACCEL_CTRL | wx.ACCEL_SHIFT, ord('M'), self.on_mute_user),
-            (wx.ACCEL_CTRL, ord('E'), self.on_edit_post),
-            (wx.ACCEL_CTRL, ord('P'), self.on_pin_post),
-            (wx.ACCEL_CTRL | wx.ACCEL_SHIFT, ord('U'), self.on_view_profile),
-            (wx.ACCEL_CTRL | wx.ACCEL_SHIFT, ord('S'), self.on_search),
-            (wx.ACCEL_CTRL | wx.ACCEL_SHIFT, ord('F'), self.on_find_in_timeline),
-            (wx.ACCEL_CTRL | wx.ACCEL_SHIFT, ord('L'), self.on_open_user_timeline),
-        ]
-        accel_entries = []
-        for flags, keycode, handler in accel_defs:
-            id = wx.NewIdRef()
-            self.Bind(wx.EVT_MENU, handler, id=id)
-            accel_entries.append((flags, keycode, id.GetId()))
-        self.SetAcceleratorTable(wx.AcceleratorTable(accel_entries))
+        # Accelerators are now handled via EVT_CHAR_HOOK for focus-aware behaviour
+        pass
+
+    def on_focus_compose(self, event):
+        self.toot_input.SetFocus()
 
     def on_reply(self, event):
         status, _ = self.get_selected_status()
@@ -750,8 +748,27 @@ class ThriveFrame(wx.Frame):
         status, index = self.get_selected_status()
         if not status: return
         try:
-            if status["favourited"]: self.mastodon.status_unfavourite(status["id"]); unfavsnd and unfavsnd.play()
-            else: self.mastodon.status_favourite(status["id"]); favsnd and favsnd.play()
+            source = status.get('reblog') or status
+            if status["favourited"]:
+                self.mastodon.status_unfavourite(status["id"]); unfavsnd and unfavsnd.play()
+                # Remove from favourites timeline
+                fav_data = self.timelines_data.get("favourites", [])
+                for i, s in enumerate(fav_data):
+                    if s.get('id') == source.get('id'):
+                        fav_data.pop(i)
+                        if self.timeline_tree.GetSelection() == self.timeline_nodes.get("favourites"):
+                            self.posts_list.Delete(i)
+                        break
+            else:
+                self.mastodon.status_favourite(status["id"]); favsnd and favsnd.play()
+                # Add to favourites timeline
+                self.timelines_data.setdefault("favourites", []).insert(0, source)
+                if self.timeline_tree.GetSelection() == self.timeline_nodes.get("favourites"):
+                    row, avatar_url = self.row_from_status(source)
+                    if row:
+                        self.posts_list.Insert(row, 0, avatar_url)
+                        self.queue_avatar_download(avatar_url)
+                if favoritessnd: favoritessnd.play()
             status["favourited"] = not status["favourited"]
         except Exception as e: wx.MessageBox(f"Error: {e}", "Favourite Error")
     
@@ -807,6 +824,7 @@ class ThriveFrame(wx.Frame):
                 author = source['account'].get('display_name') or source['account'].get('username', '')
                 node = self.timeline_tree.AppendItem(self.root, f"Thread by {author}")
                 self.timeline_nodes[timeline_key] = node
+                if open_timelinesnd: open_timelinesnd.play()
             self.timeline_tree.SelectItem(self.timeline_nodes[timeline_key])
         except Exception as e: wx.MessageBox(f"Error loading thread: {e}", "Thread Error")
 
@@ -822,11 +840,15 @@ class ThriveFrame(wx.Frame):
             if rel.get('following'):
                 if wx.MessageBox(f"Unfollow {display}?", "Confirm", wx.YES_NO | wx.ICON_QUESTION) == wx.YES:
                     self.mastodon.account_unfollow(account['id'])
+                    if unfollowsnd: unfollowsnd.play()
                     wx.MessageBox(f"Unfollowed {display}.", "Follow")
             else:
                 self.mastodon.account_follow(account['id'])
+                if followsnd: followsnd.play()
                 wx.MessageBox(f"Now following {display}.", "Follow")
-        except Exception as e: wx.MessageBox(f"Error: {e}", "Follow Error")
+        except Exception as e:
+            if errorsnd: errorsnd.play()
+            wx.MessageBox(f"Error: {e}", "Follow Error")
 
     def on_block_user(self, event):
         status, _ = self.get_selected_status()
@@ -845,7 +867,9 @@ class ThriveFrame(wx.Frame):
                 if wx.MessageBox(f"Block {display}? You won't see their posts.", "Confirm", wx.YES_NO | wx.ICON_QUESTION) == wx.YES:
                     self.mastodon.account_block(account['id'])
                     wx.MessageBox(f"Blocked {display}.", "Block")
-        except Exception as e: wx.MessageBox(f"Error: {e}", "Block Error")
+        except Exception as e:
+            if errorsnd: errorsnd.play()
+            wx.MessageBox(f"Error: {e}", "Block Error")
 
     def on_mute_user(self, event):
         status, _ = self.get_selected_status()
@@ -931,11 +955,13 @@ class ThriveFrame(wx.Frame):
         if dlg.ShowModal() == wx.ID_OK:
             query = dlg.GetValue().strip()
             if query:
+                if searchsnd: searchsnd.play()
                 timeline_key = f"search:{query}"
                 self.timelines_data[timeline_key] = []
                 if timeline_key not in self.timeline_nodes:
                     node = self.timeline_tree.AppendItem(self.root, f"Search: {query}")
                     self.timeline_nodes[timeline_key] = node
+                    if open_timelinesnd: open_timelinesnd.play()
                 self.timeline_tree.SelectItem(self.timeline_nodes[timeline_key])
                 threading.Thread(target=self.load_timeline, args=(timeline_key,), daemon=True).start()
         dlg.Destroy()
@@ -1133,6 +1159,49 @@ class ThriveFrame(wx.Frame):
             account = notif.get('account', {})
             self.mastodon.follow_request_reject(account['id'])
             wx.MessageBox(f"Rejected follow request from {account.get('display_name', account.get('username', ''))}.", "Follow Request")
+        except Exception as e: wx.MessageBox(f"Error: {e}", "Error")
+
+    def on_instance_info(self, event):
+        try:
+            instance = self.mastodon.instance()
+            title = instance.get('title', 'Unknown')
+            desc = strip_html(instance.get('description', '') or instance.get('short_description', '') or '')
+            version = instance.get('version', 'Unknown')
+            users = instance.get('stats', {}).get('user_count', '?')
+            statuses = instance.get('stats', {}).get('status_count', '?')
+            domains = instance.get('stats', {}).get('domain_count', '?')
+            uri = instance.get('uri', '')
+            contact = instance.get('contact_account', {})
+            admin = contact.get('display_name') or contact.get('username', 'Unknown') if contact else 'Unknown'
+
+            info = f"""Instance: {title}
+URI: {uri}
+Version: {version}
+Admin: {admin}
+
+Users: {users}
+Posts: {statuses}
+Known domains: {domains}
+
+Description:
+{desc}"""
+            dlg = wx.Dialog(self, title=f"Instance Info: {title}", size=(550, 400))
+            panel = wx.Panel(dlg)
+            sizer = wx.BoxSizer(wx.VERTICAL)
+            text = wx.TextCtrl(panel, value=info, style=wx.TE_MULTILINE | wx.TE_READONLY)
+            sizer.Add(text, 1, wx.EXPAND | wx.ALL, 10)
+            close_btn = wx.Button(panel, id=wx.ID_CANCEL, label="&Close")
+            sizer.Add(close_btn, 0, wx.ALIGN_RIGHT | wx.ALL, 10)
+            panel.SetSizer(sizer)
+            if is_windows_dark_mode():
+                dc = wx.Colour(40, 40, 40)
+                lt = wx.WHITE
+                WxMswDarkMode().enable(dlg)
+                dlg.SetBackgroundColour(dc); panel.SetBackgroundColour(dc)
+                text.SetBackgroundColour(dc); text.SetForegroundColour(lt)
+                close_btn.SetBackgroundColour(dc); close_btn.SetForegroundColour(lt)
+            dlg.ShowModal()
+            dlg.Destroy()
         except Exception as e: wx.MessageBox(f"Error: {e}", "Error")
 
     def on_edit_my_profile(self, event):
@@ -1457,6 +1526,7 @@ class ThriveFrame(wx.Frame):
                 if timeline_key not in self.timeline_nodes:
                     node = self.timeline_tree.AppendItem(self.root, f"#{tag_name}")
                     self.timeline_nodes[timeline_key] = node
+                    if open_timelinesnd: open_timelinesnd.play()
                 dlg.Close()
                 self.timeline_tree.SelectItem(self.timeline_nodes[timeline_key])
                 threading.Thread(target=self.load_timeline, args=(timeline_key,), daemon=True).start()
@@ -1523,6 +1593,7 @@ class ThriveFrame(wx.Frame):
             if timeline_key not in self.timeline_nodes:
                 node = self.timeline_tree.AppendItem(self.root, f"List: {lst['title']}")
                 self.timeline_nodes[timeline_key] = node
+                if open_timelinesnd: open_timelinesnd.play()
             dlg.Close()
             self.timeline_tree.SelectItem(self.timeline_nodes[timeline_key])
             threading.Thread(target=self.load_timeline, args=(timeline_key,), daemon=True).start()
@@ -1966,7 +2037,8 @@ class ThriveFrame(wx.Frame):
             if not text: return wx.MessageBox("Message cannot be empty.", "Error", wx.OK | wx.ICON_ERROR)
             try:
                 self.mastodon.status_post(text, visibility="direct")
-                if dmsnd: dmsnd.play()
+                if send_dmsnd: send_dmsnd.play()
+                elif dmsnd: dmsnd.play()
                 dialog.Close()
             except Exception as ex: wx.MessageBox(f"Error: {ex}", "Error", wx.OK | wx.ICON_ERROR)
         
@@ -2016,6 +2088,7 @@ class ThriveFrame(wx.Frame):
             self.media_files.append({"path": path, "alt_text": ""})
             self.media_list.Append(os.path.basename(path))
             self.media_list.SetSelection(len(self.media_files) - 1)
+            self._update_media_file_widgets()
         dlg.Destroy()
 
     def on_remove_media(self, event):
@@ -2024,6 +2097,7 @@ class ThriveFrame(wx.Frame):
         self.media_files.pop(sel)
         self.media_list.Delete(sel)
         self.alt_text_input.SetValue("")
+        self._update_media_file_widgets()
 
     def on_media_selected(self, event):
         sel = self.media_list.GetSelection()
@@ -2066,9 +2140,21 @@ class ThriveFrame(wx.Frame):
 
     def on_toggle_media(self, event):
         show = self.media_toggle.IsChecked()
-        for widget in self.media_widgets:
-            widget.Show(show)
+        self.add_media_button.Show(show)
+        self.add_media_button.Enable(show)
         self.media_sizer.Show(show)
+        # Only show file-dependent widgets if there are files
+        has_files = show and len(self.media_files) > 0
+        for widget in self.media_file_widgets:
+            widget.Show(has_files)
+            widget.Enable(has_files)
+        self.panel.Layout()
+
+    def _update_media_file_widgets(self):
+        has_files = len(self.media_files) > 0
+        for widget in self.media_file_widgets:
+            widget.Show(has_files)
+            widget.Enable(has_files)
         self.panel.Layout()
 
     def on_toggle_schedule(self, event):
@@ -2089,7 +2175,9 @@ class ThriveFrame(wx.Frame):
             options = [opt.GetValue().strip() for opt in self.poll_option_inputs if opt.GetValue().strip()]
             if len(options) < 2: return wx.MessageBox("A poll must have at least two options.", "Poll Error", wx.OK | wx.ICON_ERROR)
             poll_data = {'options': options, 'expires_in': self.poll_duration_seconds[self.poll_duration_choice.GetSelection()], 'multiple': self.poll_multiple_choice.IsChecked()}
-        if not status_text and not poll_data and not self.media_files: return wx.MessageBox("Cannot post empty status.", "Error", wx.OK | wx.ICON_ERROR)
+        if not status_text and not poll_data and not self.media_files:
+            if errorsnd: errorsnd.play()
+            return wx.MessageBox("Cannot post empty status.", "Error", wx.OK | wx.ICON_ERROR)
         scheduled_at = None
         if self.schedule_toggle.IsChecked():
             date_str = self.schedule_date_input.GetValue().strip()
@@ -2117,13 +2205,114 @@ class ThriveFrame(wx.Frame):
             self.schedule_date_input.SetValue(""); self.schedule_time_input.SetValue("")
             if poll_data:
                 self.poll_toggle.SetValue(False); [opt.SetValue("") for opt in self.poll_option_inputs]; self.poll_duration_choice.SetSelection(5); self.poll_multiple_choice.SetValue(False); self.on_toggle_poll(None)
-        except Exception as e: wx.MessageBox(f"Error: {e}", "Post Error")
+        except Exception as e:
+            if errorsnd: errorsnd.play()
+            wx.MessageBox(f"Error: {e}", "Post Error")
 
     def on_key_press(self, event):
-        if event.GetKeyCode() == wx.WXK_DELETE and self.FindFocus() == self.posts_list: self.delete_selected_post()
-        elif event.GetKeyCode() == wx.WXK_RETURN and self.FindFocus() == self.toot_input and event.HasAnyModifiers(): self.on_post(event)
-        elif event.GetKeyCode() == wx.WXK_END and event.ControlDown() and self.FindFocus() == self.posts_list: self.load_older_posts()
-        else: event.Skip()
+        kc = event.GetKeyCode()
+        ctrl = event.ControlDown()
+        shift = event.ShiftDown()
+        alt = event.AltDown()
+        focus = self.FindFocus()
+        in_text = isinstance(focus, wx.TextCtrl)
+
+        # Global: Ctrl+N focuses compose box
+        if ctrl and not shift and not alt and kc == ord('N'):
+            self.toot_input.SetFocus()
+            return
+
+        # Post submission: Enter with modifier in text input
+        if kc == wx.WXK_RETURN and in_text and event.HasAnyModifiers():
+            self.on_post(event)
+            return
+
+        # All other shortcuts only active outside text inputs
+        if in_text:
+            event.Skip()
+            return
+
+        # Ctrl only (no shift, no alt)
+        if ctrl and not shift and not alt:
+            ctrl_map = {
+                ord('R'): self.on_reply,
+                ord('F'): self.on_favourite,
+                ord('E'): self.on_edit_post,
+                ord('G'): self.on_view_thread,
+                ord('L'): self.on_follow_user,
+                ord('B'): self.on_block_user,
+                ord('D'): self.on_dm_user,
+                ord('U'): self.on_open_user_timeline,
+                ord('C'): self.on_copy_post,
+                ord('T'): self.on_explore,
+                ord('I'): self.on_instance_info,
+            }
+            if kc in ctrl_map:
+                ctrl_map[kc](event)
+                return
+            if kc == ord('/') or kc == wx.WXK_NUMPAD_DIVIDE:
+                self.on_search(event)
+                return
+            if kc == ord('['):
+                self.on_view_followers(event)
+                return
+            if kc == ord(']'):
+                self.on_view_following(event)
+                return
+
+        # Ctrl+Shift (no alt)
+        if ctrl and shift and not alt:
+            ctrl_shift_map = {
+                ord('R'): self.on_boost,
+                ord('F'): self.on_favourite,
+                ord('L'): self.on_follow_user,
+                ord('B'): self.on_block_user,
+                ord('U'): self.on_view_profile,
+            }
+            if kc in ctrl_shift_map:
+                ctrl_shift_map[kc](event)
+                return
+
+        # Ctrl+Alt (no shift)
+        if ctrl and alt and not shift:
+            if kc == ord('K'):
+                self.timeline_tree.SelectItem(self.timeline_nodes.get("favourites", self.timeline_tree.GetSelection()))
+                return
+            if kc == ord('B'):
+                self.timeline_tree.SelectItem(self.timeline_nodes.get("bookmarks", self.timeline_tree.GetSelection()))
+                return
+
+        # Alt only (no ctrl)
+        if alt and not ctrl:
+            if not shift:
+                alt_map = {
+                    ord('B'): self.on_bookmark,
+                    ord('V'): lambda e: self.show_post_details(),
+                    ord('W'): self.on_open_post_url,
+                }
+                if kc in alt_map:
+                    alt_map[kc](event)
+                    return
+                if kc == ord('P'):
+                    self.timeline_tree.SelectItem(self.timeline_nodes.get("federated", self.timeline_tree.GetSelection()))
+                    return
+                if kc == ord('L'):
+                    self.timeline_tree.SelectItem(self.timeline_nodes.get("local", self.timeline_tree.GetSelection()))
+                    return
+                if kc == wx.WXK_PAGEUP:
+                    self.load_older_posts()
+                    return
+            if shift:
+                if kc == ord('B'):
+                    self.on_bookmark(event)
+                    return
+
+        # Delete key
+        if kc == wx.WXK_DELETE and focus == self.posts_list:
+            self.delete_selected_post()
+            return
+
+        event.Skip()
 
     def load_older_posts(self):
         key = next((k for k, v in self.timeline_nodes.items() if v == self.timeline_tree.GetSelection()), None)
@@ -2181,7 +2370,16 @@ class ThriveFrame(wx.Frame):
         threading.Thread(target=self.mastodon.stream_user, args=(CustomStreamListener(self),), daemon=True).start()
 
     def add_new_post(self, status):
-        if not self.me or status.get("account", {}).get("id") == self.me.get("id"): pass
+        is_own = self.me and status.get("account", {}).get("id") == self.me.get("id")
+        if is_own:
+            if usersnd: usersnd.play()
+            # Add to sent timeline
+            self.timelines_data.setdefault("sent", []).insert(0, status)
+            if self.timeline_tree.GetSelection() == self.timeline_nodes.get("sent"):
+                row, avatar_url = self.row_from_status(status)
+                if row:
+                    self.posts_list.Insert(row, 0, avatar_url)
+                    self.queue_avatar_download(avatar_url)
         else:
             is_mention_of_me = any(m.get('id') == self.me.get('id') for m in (status.get('reblog') or status).get('mentions', []))
             if is_mention_of_me: pass
@@ -2258,8 +2456,13 @@ class ThriveFrame(wx.Frame):
             elif timeline.startswith("list:"): data = self.mastodon.timeline_list(timeline.split(":", 1)[1], limit=40)
             else: data = []
             
+            old_count = len(self.timelines_data.get(timeline, []))
             self.timelines_data[timeline] = data
             
+            # Play search_updated sound when a search timeline refreshes with new results
+            if timeline.startswith("search:") and len(data) > old_count:
+                if search_updatedsnd: wx.CallAfter(lambda: search_updatedsnd.play())
+
             if self.timeline_tree.GetSelection() == self.timeline_nodes.get(timeline):
                 for item in data:
                     row, avatar_url = (self.row_from_notification(item) if timeline == "notifications" else self.row_from_status(item))
