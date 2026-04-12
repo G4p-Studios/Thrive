@@ -326,6 +326,7 @@ class ThriveFrame(wx.Frame):
         actions_menu = wx.Menu()
         compose_menu_item = actions_menu.Append(wx.ID_ANY, "Compose &New Post\tCtrl+N")
         reply_menu_item = actions_menu.Append(wx.ID_ANY, "&Reply\tCtrl+R")
+        quote_menu_item = actions_menu.Append(wx.ID_ANY, "&Quote\tCtrl+Q")
         boost_menu_item = actions_menu.Append(wx.ID_ANY, "&Boost\tCtrl+Shift+R")
         fav_menu_item = actions_menu.Append(wx.ID_ANY, "&Favourite\tCtrl+F")
         bookmark_menu_item = actions_menu.Append(wx.ID_ANY, "Boo&kmark\tAlt+B")
@@ -357,6 +358,7 @@ class ThriveFrame(wx.Frame):
 
         self.Bind(wx.EVT_MENU, self.on_focus_compose, compose_menu_item)
         self.Bind(wx.EVT_MENU, self.on_reply, reply_menu_item)
+        self.Bind(wx.EVT_MENU, self.on_quote, quote_menu_item)
         self.Bind(wx.EVT_MENU, self.on_boost, boost_menu_item)
         self.Bind(wx.EVT_MENU, self.on_favourite, fav_menu_item)
         self.Bind(wx.EVT_MENU, self.on_bookmark, bookmark_menu_item)
@@ -609,6 +611,7 @@ class ThriveFrame(wx.Frame):
         source = status.get('reblog') or status
         menu = wx.Menu()
         reply_item = menu.Append(wx.ID_ANY, "&Reply\tCtrl+R")
+        quote_item = menu.Append(wx.ID_ANY, "&Quote\tCtrl+Q")
         boost_label = "Un&boost\tCtrl+Shift+R" if status.get("reblogged") else "&Boost\tCtrl+Shift+R"
         boost_item = menu.Append(wx.ID_ANY, boost_label)
         fav_label = "Un&favourite\tCtrl+F" if status.get("favourited") else "&Favourite\tCtrl+F"
@@ -663,6 +666,7 @@ class ThriveFrame(wx.Frame):
                     self.Bind(wx.EVT_MENU, self.on_reject_follow_request, reject_item)
         
         self.Bind(wx.EVT_MENU, self.on_reply, reply_item)
+        self.Bind(wx.EVT_MENU, self.on_quote, quote_item)
         self.Bind(wx.EVT_MENU, self.on_boost, boost_item)
         self.Bind(wx.EVT_MENU, self.on_favourite, fav_item)
         self.Bind(wx.EVT_MENU, self.on_bookmark, bookmark_item)
@@ -737,6 +741,61 @@ class ThriveFrame(wx.Frame):
         vbox.Add(reply_text, 1, wx.LEFT | wx.RIGHT | wx.BOTTOM | wx.EXPAND, 10)
         vbox.Add(privacy_label, 0, wx.LEFT | wx.RIGHT, 10)
         vbox.Add(reply_privacy_choice, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM | wx.EXPAND, 10)
+        buttons = wx.BoxSizer(wx.HORIZONTAL)
+        buttons.Add(send_button, 0, wx.ALL, 5)
+        buttons.Add(cancel_button, 0, wx.ALL, 5)
+        vbox.Add(buttons, 0, wx.ALIGN_RIGHT | wx.RIGHT | wx.BOTTOM, 10)
+        panel.SetSizer(vbox)
+        dialog.ShowModal()
+        dialog.Destroy()
+
+    def on_quote(self, event):
+        status, _ = self.get_selected_status()
+        if not status: return
+        source = status.get('reblog') or status
+        status_url = source.get('url') or source.get('uri', '')
+        status_id = source['id']
+
+        dialog = wx.Dialog(self, title="Quote Post", size=(500, 300))
+        panel = wx.Panel(dialog)
+        vbox = wx.BoxSizer(wx.VERTICAL)
+        quote_text = wx.TextCtrl(panel, style=wx.TE_MULTILINE, size=(480, 100))
+        quote_text.SetFocus()
+        privacy_label = wx.StaticText(panel, label="P&rivacy:")
+        quote_privacy_choice = wx.Choice(panel, choices=self.privacy_options)
+        send_button = wx.Button(panel, label="&Post")
+        cancel_button = wx.Button(panel, id=wx.ID_CANCEL, label="&Cancel")
+
+        try:
+            quote_privacy_choice.SetSelection(self.privacy_values.index(status.get("visibility", "public")))
+        except ValueError: quote_privacy_choice.SetSelection(0)
+
+        def send_quote(e):
+            text = quote_text.GetValue().strip()
+            if not text: return wx.MessageBox("Quote text cannot be empty.", "Error", wx.OK | wx.ICON_ERROR)
+            visibility = self.privacy_values[quote_privacy_choice.GetSelection()]
+            try:
+                # Try native quote_id first, then quoted_status_id, then URL fallback
+                try:
+                    result = self.mastodon.status_post(text, quote_id=status_id, visibility=visibility)
+                    if not result.get('quote') and not result.get('quote_id') and not result.get('quoted_status_id'):
+                        raise Exception("quote_id not supported")
+                except Exception:
+                    try:
+                        result = self.mastodon.status_post(text, quoted_status_id=status_id, visibility=visibility)
+                        if not result.get('quote') and not result.get('quote_id') and not result.get('quoted_status_id'):
+                            raise Exception("quoted_status_id not supported")
+                    except Exception:
+                        self.mastodon.status_post(f"{text}\n\n{status_url}", visibility=visibility)
+                if tootsnd: tootsnd.play()
+                dialog.Close()
+            except Exception as ex: wx.MessageBox(f"Error sending quote: {ex}", "Error", wx.OK | wx.ICON_ERROR)
+        send_button.Bind(wx.EVT_BUTTON, send_quote)
+
+        vbox.Add(wx.StaticText(panel, label="&Quote"), 0, wx.LEFT | wx.RIGHT | wx.TOP, 10)
+        vbox.Add(quote_text, 1, wx.LEFT | wx.RIGHT | wx.BOTTOM | wx.EXPAND, 10)
+        vbox.Add(privacy_label, 0, wx.LEFT | wx.RIGHT, 10)
+        vbox.Add(quote_privacy_choice, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM | wx.EXPAND, 10)
         buttons = wx.BoxSizer(wx.HORIZONTAL)
         buttons.Add(send_button, 0, wx.ALL, 5)
         buttons.Add(cancel_button, 0, wx.ALL, 5)
@@ -2253,6 +2312,7 @@ Description:
         if ctrl and not shift and not alt:
             ctrl_map = {
                 ord('R'): self.on_reply,
+                ord('Q'): self.on_quote,
                 ord('F'): self.on_favourite,
                 ord('E'): self.on_edit_post,
                 ord('G'): self.on_view_thread,
