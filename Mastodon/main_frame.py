@@ -2387,26 +2387,30 @@ Description:
                     self.posts_list.Insert(row, 0, avatar_url)
                     self.queue_avatar_download(avatar_url)
         else:
-            is_mention_of_me = any(m.get('id') == self.me.get('id') for m in (status.get('reblog') or status).get('mentions', []))
-            if is_mention_of_me: pass
-            elif status.get("visibility") == "direct": dmsnd and dmsnd.play()
-            else: newtootsnd and newtootsnd.play()
-        
+            if status.get("visibility") == "direct":
+                dmsnd and dmsnd.play()
+            else:
+                newtootsnd and newtootsnd.play()
+
+        # Add to home timeline (stream_user delivers home timeline posts)
         self.timelines_data["home"].insert(0, status)
         if self.timeline_tree.GetSelection() == self.timeline_nodes["home"]:
             row, avatar_url = self.row_from_status(status)
-            if row: 
+            if row:
                 self.posts_list.Insert(row, 0, avatar_url)
                 self.queue_avatar_download(avatar_url)
 
-        # Also add to local timeline for local posts
-        if "local" in self.timeline_nodes:
-            self.timelines_data.setdefault("local", []).insert(0, status)
-            if self.timeline_tree.GetSelection() == self.timeline_nodes["local"]:
-                row, avatar_url = self.row_from_status(status)
-                if row:
-                    self.posts_list.Insert(row, 0, avatar_url)
-                    self.queue_avatar_download(avatar_url)
+        # Add to any open user timelines for this account
+        account_id = status.get('account', {}).get('id')
+        if account_id:
+            user_key = f"user:{account_id}"
+            if user_key in self.timeline_nodes:
+                self.timelines_data.setdefault(user_key, []).insert(0, status)
+                if self.timeline_tree.GetSelection() == self.timeline_nodes[user_key]:
+                    row, avatar_url = self.row_from_status(status)
+                    if row:
+                        self.posts_list.Insert(row, 0, avatar_url)
+                        self.queue_avatar_download(avatar_url)
 
     def add_notification(self, notification):
         ntype = notification.get("type")
@@ -2414,13 +2418,23 @@ Description:
             notificationsnd and notificationsnd.play()
         elif ntype == "mention":
             mentionsnd and mentionsnd.play()
-        
+
         self.timelines_data["notifications"].insert(0, notification)
         if self.timeline_tree.GetSelection() == self.timeline_nodes["notifications"]:
             row, avatar_url = self.row_from_notification(notification)
-            if row: 
+            if row:
                 self.posts_list.Insert(row, 0, avatar_url)
                 self.queue_avatar_download(avatar_url)
+
+        # Route mentions to the mentions timeline as statuses
+        if ntype == "mention" and notification.get("status"):
+            mention_status = notification["status"]
+            self.timelines_data.setdefault("mentions", []).insert(0, mention_status)
+            if self.timeline_tree.GetSelection() == self.timeline_nodes.get("mentions"):
+                row, avatar_url = self.row_from_status(mention_status)
+                if row:
+                    self.posts_list.Insert(row, 0, avatar_url)
+                    self.queue_avatar_download(avatar_url)
 
     def handle_status_update(self, status):
         for timeline in ["home", "local", "federated", "sent", "mentions", "direct_messages", "favourites", "bookmarks"]:
