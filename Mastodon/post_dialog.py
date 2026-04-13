@@ -204,7 +204,6 @@ class PostDetailsDialog(wx.Dialog):
 		# Strip server-prepended RE:/QT: URL for quote posts
 		quote_obj = self.status.get('quote')
 		if quote_obj:
-			import re
 			quoted_status = quote_obj.get('quoted_status') if isinstance(quote_obj, dict) else getattr(quote_obj, 'quoted_status', None)
 			if quoted_status:
 				quoted_url = quoted_status.get('url') or quoted_status.get('uri') or ''

@@ -2647,7 +2647,6 @@ Description:
                 # Strip server-prepended RE: <url> or QT: <url> from content
                 quoted_url = quoted_status.get('url') or quoted_status.get('uri') or ''
                 if quoted_url:
-                    import re
                     content_cell = re.sub(r'^(?:RE|QT):\s*' + re.escape(quoted_url) + r'\s*', '', content_cell).strip()
                     content_cell = content_cell.rstrip().removesuffix(quoted_url).rstrip()
                 content_cell = f"quoting {quoted_display} (@{quoted_handle}): \"{quoted_content}\". {author_cell} added \"{content_cell}\""
@@ -2675,9 +2674,12 @@ Description:
     def show_post_details(self):
         status, _ = self.get_selected_status()
         if not status: return wx.MessageBox("This notification has no associated post.", "No Post", wx.OK | wx.ICON_INFORMATION)
-        dlg = PostDetailsDialog(self, self.mastodon, status, self.me, votesnd=votesnd)
-        dlg.ShowModal()
-        dlg.Destroy()
+        try:
+            dlg = PostDetailsDialog(self, self.mastodon, status, self.me, votesnd=votesnd)
+            dlg.ShowModal()
+            dlg.Destroy()
+        except Exception as e:
+            wx.MessageBox(f"Error opening post details: {e}", "Error", wx.OK | wx.ICON_ERROR)
 
     def get_app_name(self, status_obj):
         if not status_obj: return 'Unknown'
