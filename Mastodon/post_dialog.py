@@ -200,6 +200,18 @@ class PostDetailsDialog(wx.Dialog):
 		content_html = self.status["content"]
 		processed_html = content_html.replace('<br />', '\n').replace('<br>', '\n').replace('</p>', '\n\n')
 		content = strip_html(processed_html)
+
+		# Strip server-prepended RE:/QT: URL for quote posts
+		quote_obj = self.status.get('quote')
+		if quote_obj:
+			import re
+			quoted_status = quote_obj.get('quoted_status') if isinstance(quote_obj, dict) else getattr(quote_obj, 'quoted_status', None)
+			if quoted_status:
+				quoted_url = quoted_status.get('url') or quoted_status.get('uri') or ''
+				if quoted_url:
+					content = re.sub(r'^(?:RE|QT):\s*' + re.escape(quoted_url) + r'\s*', '', content).strip()
+					content = content.rstrip().removesuffix(quoted_url).rstrip()
+
 		self.reply_users=""
 		me=self.me['acct']
 		for i in content.split(" "):
@@ -225,6 +237,18 @@ Favorited {favs} times.
 {replies} replies
 Privacy: {privacy}
 Language: {language}"""
+
+		# Add quote info if present
+		quote_obj = self.status.get('quote')
+		if quote_obj:
+			quoted_status = quote_obj.get('quoted_status') if isinstance(quote_obj, dict) else getattr(quote_obj, 'quoted_status', None)
+			if quoted_status:
+				quoted_author = quoted_status.get('account', {})
+				quoted_display = quoted_author.get('display_name') or quoted_author.get('username') or ''
+				quoted_handle = quoted_author.get('acct', '')
+				quoted_content = strip_html((quoted_status.get('content', '') or '').replace('<br />', '\n').replace('<br>', '\n').replace('</p>', '\n\n')).strip()
+				detail_text += f"\n\nQuoting {quoted_display} (@{quoted_handle}):\n{quoted_content}"
+
 		self.details_label = wx.StaticText(self.panel, label="Post &Details")
 		self.details_box = wx.TextCtrl(self.panel, value=detail_text, style=wx.TE_MULTILINE | wx.TE_READONLY)
 

@@ -753,6 +753,16 @@ class ThriveFrame(wx.Frame):
         status, _ = self.get_selected_status()
         if not status: return
         source = status.get('reblog') or status
+
+        # Check quote approval
+        quote_approval = source.get('quote_approval')
+        if quote_approval:
+            current_user = quote_approval.get('current_user') if isinstance(quote_approval, dict) else getattr(quote_approval, 'current_user', None)
+            if current_user in ('denied', 'unknown'):
+                if errorsnd: errorsnd.play()
+                wx.MessageBox("This post cannot be quoted. The author has disabled quoting.", "Quote Not Allowed", wx.OK | wx.ICON_INFORMATION)
+                return
+
         status_url = source.get('url') or source.get('uri', '')
         status_id = source['id']
 
@@ -775,18 +785,15 @@ class ThriveFrame(wx.Frame):
             if not text: return wx.MessageBox("Quote text cannot be empty.", "Error", wx.OK | wx.ICON_ERROR)
             visibility = self.privacy_values[quote_privacy_choice.GetSelection()]
             try:
-                # Try native quote_id first, then quoted_status_id, then URL fallback
+                # Try quoted_status_id (Mastodon 4.5+) first, then URL fallback
+                posted = False
                 try:
-                    result = self.mastodon.status_post(text, quote_id=status_id, visibility=visibility)
-                    if not result.get('quote') and not result.get('quote_id') and not result.get('quoted_status_id'):
-                        raise Exception("quote_id not supported")
+                    self.mastodon.status_post(text, quoted_status_id=status_id, visibility=visibility)
+                    posted = True
                 except Exception:
-                    try:
-                        result = self.mastodon.status_post(text, quoted_status_id=status_id, visibility=visibility)
-                        if not result.get('quote') and not result.get('quote_id') and not result.get('quoted_status_id'):
-                            raise Exception("quoted_status_id not supported")
-                    except Exception:
-                        self.mastodon.status_post(f"{text}\n\n{status_url}", visibility=visibility)
+                    pass
+                if not posted:
+                    self.mastodon.status_post(f"{text}\n\n{status_url}", visibility=visibility)
                 if tootsnd: tootsnd.play()
                 dialog.Close()
             except Exception as ex: wx.MessageBox(f"Error sending quote: {ex}", "Error", wx.OK | wx.ICON_ERROR)
@@ -2627,7 +2634,24 @@ Description:
             content_cell = f"boosting {original_display} (@{original_handle}): {content_body}"
         else:
             content_cell = f"CW: {status['spoiler_text']}" if status.get('spoiler_text') else content
-            
+
+        # Detect quote posts
+        quote_obj = source_obj.get('quote')
+        if quote_obj:
+            quoted_status = quote_obj.get('quoted_status') if isinstance(quote_obj, dict) else getattr(quote_obj, 'quoted_status', None)
+            if quoted_status:
+                quoted_author = quoted_status.get('account', {})
+                quoted_display = quoted_author.get('display_name') or quoted_author.get('username') or ''
+                quoted_handle = quoted_author.get('acct', '')
+                quoted_content = strip_html((quoted_status.get('content', '') or '').replace('<br />', '\n').replace('<br>', '\n').replace('</p>', '\n\n')).strip()
+                # Strip server-prepended RE: <url> or QT: <url> from content
+                quoted_url = quoted_status.get('url') or quoted_status.get('uri') or ''
+                if quoted_url:
+                    import re
+                    content_cell = re.sub(r'^(?:RE|QT):\s*' + re.escape(quoted_url) + r'\s*', '', content_cell).strip()
+                    content_cell = content_cell.rstrip().removesuffix(quoted_url).rstrip()
+                content_cell = f"quoting {quoted_display} (@{quoted_handle}): \"{quoted_content}\". {author_cell} added \"{content_cell}\""
+
         if source_obj.get('poll'): content_cell += " [Poll]"
         time_cell = self.format_time(source_obj.get('created_at')) or ''
         client_cell = self.get_app_name(source_obj) or ''
