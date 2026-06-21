@@ -3,17 +3,33 @@ import os
 import re
 import webbrowser
 from utils import strip_html
+from post_rendering import build_status_body_html, status_plain_text
 from profile_dialog import ViewProfileDialog
 from sound_lib import stream
 from sound_lib import output as o
 from sound_lib.main import BassError
 from easysettings import EasySettings
 import main_frame
+from wx_accessible_webview import AccessibleWebView, DEFAULT_STYLES
 
 try:
     import pyperclip
 except ImportError:
     pyperclip = None
+
+POST_WEBVIEW_STYLES = DEFAULT_STYLES + """
+  body { padding: 0; }
+  article.post-content, article.quoted-post {
+    border: 1px solid GrayText;
+    border-radius: 4px;
+    margin: 0 0 12px 0;
+    padding: 10px 12px;
+  }
+  .content-warning {
+    border: 1px solid GrayText;
+    padding: 6px 8px;
+  }
+"""
 
 # --- Dark Mode for MSW ---
 try:
@@ -168,10 +184,10 @@ class PostDetailsDialog(wx.Dialog):
 		URL_REGEX = re.compile(r'(?:https?://|www\.)[^\s<>"]+')
 
 		# 1. Extract from href attributes first, as they are definitive
-		href_links = HREF_REGEX.findall(self.status["content"])
+		href_links = HREF_REGEX.findall(self.status.get("content", ""))
 		
 		# 2. Then find bare links in the text
-		content_text = strip_html(self.status["content"])
+		content_text = strip_html(self.status.get("content", ""))
 		bare_links = URL_REGEX.findall(content_text)
 
 		# 3. Combine, deduplicate, and clean
@@ -197,19 +213,7 @@ class PostDetailsDialog(wx.Dialog):
 			self.panel.SetBackgroundColour(self.dark_color)
 			self.SetBackgroundColour(self.dark_color)
 
-		content_html = self.status["content"]
-		processed_html = content_html.replace('<br />', '\n').replace('<br>', '\n').replace('</p>', '\n\n')
-		content = strip_html(processed_html)
-
-		# Strip server-prepended RE:/QT: URL for quote posts
-		quote_obj = self.status.get('quote')
-		if quote_obj:
-			quoted_status = quote_obj.get('quoted_status') if isinstance(quote_obj, dict) else getattr(quote_obj, 'quoted_status', None)
-			if quoted_status:
-				quoted_url = quoted_status.get('url') or quoted_status.get('uri') or ''
-				if quoted_url:
-					content = re.sub(r'^(?:RE|QT):\s*' + re.escape(quoted_url) + r'\s*', '', content).strip()
-					content = content.rstrip().removesuffix(quoted_url).rstrip()
+		content = status_plain_text(self.status)
 
 		self.reply_users=""
 		me=self.me['acct']
@@ -218,7 +222,17 @@ class PostDetailsDialog(wx.Dialog):
 		if self.account.acct!=me: self.reply_users="@"+self.account.acct+" "+self.reply_users
 
 		self.content_label  = wx.StaticText(self.panel, label="Post C&ontent")
-		self.content_box = wx.TextCtrl(self.panel, value=content, style=wx.TE_MULTILINE | wx.TE_READONLY)
+		self.content_view = AccessibleWebView(
+			self.panel,
+			title="Post content",
+			lang=self.status.get("language") or "en",
+			live_region=False,
+			escape_to_close=True,
+			on_close=self.close_from_webview,
+			open_links_externally=True,
+			initial_html=build_status_body_html(self.status),
+			styles=POST_WEBVIEW_STYLES,
+		)
 
 		app = self.status.get("application")
 		source = app["name"] if app and "name" in app else "Unknown"
@@ -245,7 +259,7 @@ Language: {language}"""
 				quoted_author = quoted_status.get('account', {})
 				quoted_display = quoted_author.get('display_name') or quoted_author.get('username') or ''
 				quoted_handle = quoted_author.get('acct', '')
-				quoted_content = strip_html((quoted_status.get('content', '') or '').replace('<br />', '\n').replace('<br>', '\n').replace('</p>', '\n\n')).strip()
+				quoted_content = status_plain_text(quoted_status)
 				detail_text += f"\n\nQuoting {quoted_display} (@{quoted_handle}):\n{quoted_content}"
 
 		self.details_label = wx.StaticText(self.panel, label="Post &Details")
@@ -271,7 +285,7 @@ Language: {language}"""
 			
 		sizer = wx.BoxSizer(wx.VERTICAL)
 		sizer.Add(self.content_label, 0, wx.ALL, 5)
-		sizer.Add(self.content_box, 1, wx.ALL | wx.EXPAND, 5)
+		sizer.Add(self.content_view.control, 1, wx.ALL | wx.EXPAND, 5)
 		sizer.Add(self.details_label, 0, wx.ALL, 5)
 		sizer.Add(self.details_box, 0, wx.ALL | wx.EXPAND, 5)
 
@@ -283,9 +297,12 @@ Language: {language}"""
 		if self.dark_mode_active:
 			for widget in [self.content_label, self.details_label]:
 				widget.SetForegroundColour(self.light_text_color)
-			for widget in [self.content_box, self.details_box]:
+			for widget in [self.details_box]:
 				widget.SetBackgroundColour(self.dark_color)
 				widget.SetForegroundColour(self.light_text_color)
+			if not self.content_view.using_webview:
+				self.content_view.control.SetBackgroundColour(self.dark_color)
+				self.content_view.control.SetForegroundColour(self.light_text_color)
 			all_buttons = [self.reply_button, self.boost_button, self.fav_button, self.bookmark_button, self.copy_button, self.open_url_button, self.thread_button, self.links_button, self.profile_button, self.take_down_button, self.close_button]
 			if self.status['account']['id'] == self.me['id']:
 				all_buttons.extend([self.edit_button, self.pin_button])
@@ -332,6 +349,13 @@ Language: {language}"""
 		self.SetSizer(main_sizer)
 
 		self.setup_accelerators()
+		wx.CallAfter(self.content_view.focus)
+
+	def close_from_webview(self):
+		if self.IsModal():
+			self.EndModal(wx.ID_CANCEL)
+		else:
+			self.Close()
 
 	def on_view_links(self, event):
 		if not self.links:
@@ -569,7 +593,7 @@ Language: {language}"""
 			wx.MessageBox(f"Error: {e}", "Bookmark Error")
 
 	def on_copy_text(self, event):
-		content = strip_html((self.status.get('content', '') or '').replace('<br />', '\n').replace('<br>', '\n').replace('</p>', '\n\n')).strip()
+		content = status_plain_text(self.status)
 		if pyperclip:
 			pyperclip.copy(content)
 		else:
@@ -610,7 +634,7 @@ Language: {language}"""
 			wx.MessageBox(f"Error loading thread: {e}", "Thread Error")
 
 	def on_edit(self, event):
-		content = strip_html((self.status.get('content', '') or '').replace('<br />', '\n').replace('<br>', '\n').replace('</p>', '\n\n')).strip()
+		content = status_plain_text(self.status)
 		dialog = wx.Dialog(self, title="Edit Post", size=(500, 300))
 		panel = wx.Panel(dialog)
 		vbox = wx.BoxSizer(wx.VERTICAL)
@@ -631,8 +655,7 @@ Language: {language}"""
 				spoiler = spoiler_input.GetValue().strip() or None
 				updated = self.mastodon.status_update(self.status['id'], new_text, spoiler_text=spoiler)
 				self.status = updated
-				processed = updated['content'].replace('<br />', '\n').replace('<br>', '\n').replace('</p>', '\n\n')
-				self.content_box.SetValue(strip_html(processed))
+				self.content_view.set_content(build_status_body_html(updated))
 				dialog.Close()
 			except Exception as ex: wx.MessageBox(f"Error editing post: {ex}", "Error", wx.OK | wx.ICON_ERROR)
 		

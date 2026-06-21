@@ -1,5 +1,6 @@
 mastodon_py
 wxPython
+wx-accessible-webview>=0.2.0
 git+https://github.com/samtupy/sound_lib_macos_fixes.git
 easysettings[all]
 pyperclip
