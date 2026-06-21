@@ -2606,15 +2606,22 @@ Description:
         ntype, account = notification.get("type"), notification.get("account", {})
         user = account.get("display_name") or account.get("username", "Unknown")
         status = notification.get("status")
-        content = strip_html((status['content'] or '').replace('<br />', '\n').replace('<br>', '\n').replace('</p>', '\n\n')).strip()
+        content = ""
+        if status:
+            content = strip_html((status.get('content', '') or '').replace('<br />', '\n').replace('<br>', '\n').replace('</p>', '\n\n')).strip()
         
         if ntype == "favourite" and status: return f"{user} favourited your post: {content}"
+        if ntype == "favourite": return f"{user} favourited a post that is no longer available."
         if ntype == "reblog" and status: return f"{user} boosted your post: {content}"
+        if ntype == "reblog": return f"{user} boosted a post that is no longer available."
         if ntype == "mention" and status: return f"{user} mentioned you: {content}"
+        if ntype == "mention": return f"{user} mentioned you in a post that is no longer available."
         if ntype == "follow": return f"{user} followed you."
         if ntype == "follow_request": return f"{user} requested to follow you."
         if ntype == "poll" and status and status.get("poll", {}).get("expired"): return f"Poll ended in {user}'s post: {content}"
+        if ntype == "poll": return f"A poll notification from {user} is no longer available."
         if ntype == "update" and status: return f"{user}'s post you interacted with was edited: {content}"
+        if ntype == "update": return f"{user}'s edited post is no longer available."
         return f"{user}: {ntype}"
 
     def row_from_status(self, status):
