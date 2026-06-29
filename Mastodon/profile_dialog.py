@@ -103,6 +103,15 @@ class ViewProfileDialog(wx.Dialog):
 
 		last_post = account.get("last_status_at", "") or "Unknown"
 		website = account.get("url", "")
+		preferences = []
+		if "show_media" in account:
+			preferences.append("Media tab shown" if account.get("show_media") else "Media tab hidden")
+		if account.get("show_media") and "show_media_replies" in account:
+			preferences.append("Media replies included" if account.get("show_media_replies") else "Media replies hidden")
+		if "show_featured" in account:
+			preferences.append("Featured tab shown" if account.get("show_featured") else "Featured tab hidden")
+		avatar_description = account.get("avatar_description")
+		header_description = account.get("header_description")
 
 		info = f"""Display Name: {display_name}
 Username: {acct}
@@ -113,6 +122,12 @@ Posts: {statuses}
 Created: {created_at}
 Last post: {last_post}
 Website: {website}"""
+		if avatar_description:
+			info += f"\nAvatar description: {avatar_description}"
+		if header_description:
+			info += f"\nHeader description: {header_description}"
+		if preferences:
+			info += "\nProfile preferences: " + ", ".join(preferences)
 
 		# Get relationship info
 		if self.mastodon and self.me and account.get('id') != self.me.get('id'):

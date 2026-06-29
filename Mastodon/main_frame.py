@@ -8,6 +8,24 @@ from utils import strip_html, get_time_ago
 from post_dialog import PostDetailsDialog
 from profile_dialog import ViewProfileDialog
 from settings_dialog import SettingsDialog
+from mastodon_api import (
+	add_collection_account,
+	create_collection,
+	delete_collection,
+	fetch_account_collections,
+	fetch_account_in_collections,
+	fetch_account_statuses,
+	fetch_annual_report,
+	fetch_annual_report_state,
+	fetch_collection,
+	fetch_current_profile,
+	fetch_notifications,
+	generate_annual_report,
+	remove_collection_item,
+	revoke_collection_item,
+	update_collection,
+	update_current_profile,
+)
 from sound_lib import stream
 from sound_lib.main import BassError
 from easysettings import EasySettings
@@ -293,6 +311,7 @@ class ThriveFrame(wx.Frame):
         view_menu.AppendSeparator()
         explore_item = view_menu.Append(wx.ID_ANY, "E&xplore/Discover...\tCtrl+T\tCtrl+T", "Browse trending posts, hashtags, and links")
         lists_item = view_menu.Append(wx.ID_ANY, "&Lists...", "Manage and view lists")
+        collections_item = view_menu.Append(wx.ID_ANY, "&Collections...", "Manage and view account collections")
         followed_hashtags_item = view_menu.Append(wx.ID_ANY, "Followed &Hashtags...", "View and manage followed hashtags")
         view_menu.AppendSeparator()
         view_favourites_item = view_menu.Append(wx.ID_ANY, "Fav&ourites\tCtrl+Alt+K", "View your favourited posts")
@@ -311,6 +330,7 @@ class ThriveFrame(wx.Frame):
         self.Bind(wx.EVT_MENU, self.on_scheduled_posts, scheduled_item)
         self.Bind(wx.EVT_MENU, self.on_explore, explore_item)
         self.Bind(wx.EVT_MENU, self.on_lists, lists_item)
+        self.Bind(wx.EVT_MENU, self.on_my_collections, collections_item)
         self.Bind(wx.EVT_MENU, self.on_followed_hashtags, followed_hashtags_item)
         self.Bind(wx.EVT_MENU, self.on_view_favourites_timeline, view_favourites_item)
         self.Bind(wx.EVT_MENU, self.on_view_bookmarks_timeline, view_bookmarks_item)
@@ -352,6 +372,7 @@ class ThriveFrame(wx.Frame):
         view_history_menu_item = actions_menu.Append(wx.ID_ANY, "View Edit &History")
         actions_menu.AppendSeparator()
         profile_menu_item = actions_menu.Append(wx.ID_ANY, "View &User Profile\tCtrl+Shift+U")
+        user_collections_menu_item = actions_menu.Append(wx.ID_ANY, "View User Co&llections")
         search_menu_item = actions_menu.Append(wx.ID_ANY, "&Search\tCtrl+/")
         user_timeline_menu_item = actions_menu.Append(wx.ID_ANY, "Open User Time&line\tCtrl+U")
         dm_user_menu_item = actions_menu.Append(wx.ID_ANY, "Send &Direct Message\tCtrl+D")
@@ -378,6 +399,7 @@ class ThriveFrame(wx.Frame):
         self.Bind(wx.EVT_MENU, self.on_view_favouriters, view_favouriters_menu_item)
         self.Bind(wx.EVT_MENU, self.on_view_edit_history, view_history_menu_item)
         self.Bind(wx.EVT_MENU, self.on_view_profile, profile_menu_item)
+        self.Bind(wx.EVT_MENU, self.on_view_user_collections, user_collections_menu_item)
         self.Bind(wx.EVT_MENU, self.on_search, search_menu_item)
         self.Bind(wx.EVT_MENU, self.on_open_user_timeline, user_timeline_menu_item)
         self.Bind(wx.EVT_MENU, self.on_dm_user, dm_user_menu_item)
@@ -636,6 +658,7 @@ class ThriveFrame(wx.Frame):
             self.Bind(wx.EVT_MENU, self.on_pin_post, pin_item)
             menu.AppendSeparator()
         profile_item = menu.Append(wx.ID_ANY, "View &User Profile\tCtrl+Shift+U")
+        user_collections_item = menu.Append(wx.ID_ANY, "View User Co&llections")
         user_tl_item = menu.Append(wx.ID_ANY, "Open User Time&line\tCtrl+U")
         menu.AppendSeparator()
         view_media_item = menu.Append(wx.ID_ANY, "View M&edia Attachments")
@@ -678,6 +701,7 @@ class ThriveFrame(wx.Frame):
         self.Bind(wx.EVT_MENU, self.on_block_user, block_item)
         self.Bind(wx.EVT_MENU, self.on_mute_user, mute_item)
         self.Bind(wx.EVT_MENU, self.on_view_profile, profile_item)
+        self.Bind(wx.EVT_MENU, self.on_view_user_collections, user_collections_item)
         self.Bind(wx.EVT_MENU, self.on_open_user_timeline, user_tl_item)
         self.Bind(wx.EVT_MENU, self.on_view_media, view_media_item)
         self.Bind(wx.EVT_MENU, self.on_view_boosters, view_boosters_item)
@@ -1247,6 +1271,11 @@ class ThriveFrame(wx.Frame):
     def on_instance_info(self, event):
         try:
             instance = self.mastodon.instance()
+            instance_v2 = {}
+            try:
+                instance_v2 = self.mastodon.instance_v2()
+            except Exception:
+                pass
             title = instance.get('title', 'Unknown')
             desc = strip_html(instance.get('description', '') or instance.get('short_description', '') or '')
             version = instance.get('version', 'Unknown')
@@ -1256,15 +1285,44 @@ class ThriveFrame(wx.Frame):
             uri = instance.get('uri', '')
             contact = instance.get('contact_account', {})
             admin = contact.get('display_name') or contact.get('username', 'Unknown') if contact else 'Unknown'
+            api_version = (instance_v2.get('api_versions') or {}).get('mastodon', 'Unknown') if instance_v2 else 'Unknown'
+            accounts_config = ((instance_v2.get('configuration') or {}).get('accounts') or {}) if instance_v2 else {}
+            thumbnail_desc = strip_html(((instance_v2.get('thumbnail') or {}).get('description') or '') if instance_v2 else '')
+            wrapstodon = instance_v2.get('wrapstodon') if instance_v2 else None
+            limits = []
+            if accounts_config.get('max_display_name_length') is not None:
+                limits.append(f"Display name length: {accounts_config.get('max_display_name_length')}")
+            if accounts_config.get('max_note_length') is not None:
+                limits.append(f"Bio length: {accounts_config.get('max_note_length')}")
+            if accounts_config.get('max_profile_fields') is not None:
+                limits.append(f"Profile fields: {accounts_config.get('max_profile_fields')}")
+            if accounts_config.get('profile_field_name_limit') is not None:
+                limits.append(f"Field label length: {accounts_config.get('profile_field_name_limit')}")
+            if accounts_config.get('profile_field_value_limit') is not None:
+                limits.append(f"Field value length: {accounts_config.get('profile_field_value_limit')}")
+            wrapstodon_text = "Not currently offered"
+            if wrapstodon:
+                wrapstodon_text = f"Offered for {wrapstodon}"
+                try:
+                    state = fetch_annual_report_state(self.mastodon, wrapstodon).get("state", "unknown")
+                    wrapstodon_text += f" ({state})"
+                except Exception:
+                    pass
 
             info = f"""Instance: {title}
 URI: {uri}
 Version: {version}
+Mastodon API version: {api_version}
 Admin: {admin}
 
 Users: {users}
 Posts: {statuses}
 Known domains: {domains}
+Wrapstodon: {wrapstodon_text}
+Thumbnail description: {thumbnail_desc or 'None'}
+
+Account limits:
+{chr(10).join(limits) if limits else 'Unknown'}
 
 Description:
 {desc}"""
@@ -1273,15 +1331,43 @@ Description:
             sizer = wx.BoxSizer(wx.VERTICAL)
             text = wx.TextCtrl(panel, value=info, style=wx.TE_MULTILINE | wx.TE_READONLY)
             sizer.Add(text, 1, wx.EXPAND | wx.ALL, 10)
+            wrap_btn = None
+            if wrapstodon:
+                wrap_btn = wx.Button(panel, label="&Wrapstodon")
+                sizer.Add(wrap_btn, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
             close_btn = wx.Button(panel, id=wx.ID_CANCEL, label="&Close")
             sizer.Add(close_btn, 0, wx.ALIGN_RIGHT | wx.ALL, 10)
             panel.SetSizer(sizer)
+
+            def on_wrapstodon(e):
+                try:
+                    state = fetch_annual_report_state(self.mastodon, wrapstodon).get("state", "unknown")
+                    if state == "eligible":
+                        if wx.MessageBox(f"Generate your {wrapstodon} Wrapstodon report?", "Wrapstodon", wx.YES_NO | wx.ICON_QUESTION) == wx.YES:
+                            generate_annual_report(self.mastodon, wrapstodon)
+                            wx.MessageBox("Wrapstodon generation has started.", "Wrapstodon")
+                    elif state == "available":
+                        report = fetch_annual_report(self.mastodon, wrapstodon)
+                        reports = report.get("annual_reports", []) if isinstance(report, dict) else []
+                        share_url = reports[0].get("share_url", "") if reports else ""
+                        wx.MessageBox(f"Your {wrapstodon} Wrapstodon report is available.\n{share_url}", "Wrapstodon")
+                    elif state == "generating":
+                        wx.MessageBox("Your Wrapstodon report is still generating.", "Wrapstodon")
+                    else:
+                        wx.MessageBox("Your account is not eligible for Wrapstodon right now.", "Wrapstodon")
+                except Exception as ex:
+                    wx.MessageBox(f"Error loading Wrapstodon: {ex}", "Wrapstodon", wx.OK | wx.ICON_ERROR)
+
+            if wrap_btn:
+                wrap_btn.Bind(wx.EVT_BUTTON, on_wrapstodon)
             if is_windows_dark_mode():
                 dc = wx.Colour(40, 40, 40)
                 lt = wx.WHITE
                 WxMswDarkMode().enable(dlg)
                 dlg.SetBackgroundColour(dc); panel.SetBackgroundColour(dc)
                 text.SetBackgroundColour(dc); text.SetForegroundColour(lt)
+                if wrap_btn:
+                    wrap_btn.SetBackgroundColour(dc); wrap_btn.SetForegroundColour(lt)
                 close_btn.SetBackgroundColour(dc); close_btn.SetForegroundColour(lt)
             dlg.ShowModal()
             dlg.Destroy()
@@ -1289,27 +1375,42 @@ Description:
 
     def on_edit_my_profile(self, event):
         if not self.mastodon or not self.me: return
-        dlg = wx.Dialog(self, title="Edit My Profile", size=(550, 500))
+        profile_api_available = True
+        try:
+            profile = fetch_current_profile(self.mastodon)
+        except Exception:
+            profile_api_available = False
+            profile = self.me
+        accounts_config = {}
+        try:
+            accounts_config = (self.mastodon.instance_v2().get("configuration") or {}).get("accounts") or {}
+        except Exception:
+            pass
+        max_fields = accounts_config.get("max_profile_fields") or len((profile.get("fields") or self.me.get("fields") or [])) or 4
+        try:
+            max_fields = int(max_fields)
+        except (TypeError, ValueError):
+            max_fields = 4
+
+        dlg = wx.Dialog(self, title="Edit My Profile", size=(600, 720))
         panel = wx.Panel(dlg)
         sizer = wx.BoxSizer(wx.VERTICAL)
         
         sizer.Add(wx.StaticText(panel, label="Display &Name:"), 0, wx.LEFT | wx.RIGHT | wx.TOP, 10)
         name_input = wx.TextCtrl(panel, size=(-1, 30))
-        name_input.SetValue(self.me.get('display_name', ''))
+        name_input.SetValue(profile.get('display_name', self.me.get('display_name', '')))
         sizer.Add(name_input, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
         
         sizer.Add(wx.StaticText(panel, label="&Bio:"), 0, wx.LEFT | wx.RIGHT, 10)
-        bio_input = wx.TextCtrl(panel, style=wx.TE_MULTILINE, size=(-1, 120))
-        # Get source bio (plain text) if available
-        source = self.me.get('source', {})
-        bio_input.SetValue(source.get('note', '') or strip_html(self.me.get('note', '')))
+        bio_input = wx.TextCtrl(panel, style=wx.TE_MULTILINE, size=(-1, 90))
+        source = profile.get('source', {})
+        bio_input.SetValue(profile.get('note', '') if profile_api_available else (source.get('note', '') or strip_html(self.me.get('note', ''))))
         sizer.Add(bio_input, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
         
-        # Metadata fields (up to 4)
         sizer.Add(wx.StaticText(panel, label="Profile &Fields:"), 0, wx.LEFT | wx.RIGHT, 10)
-        fields = self.me.get('source', {}).get('fields', []) or self.me.get('fields', [])
+        fields = profile.get('fields', []) or self.me.get('source', {}).get('fields', []) or self.me.get('fields', [])
         field_inputs = []
-        for i in range(4):
+        for i in range(max_fields):
             fsizer = wx.BoxSizer(wx.HORIZONTAL)
             name_lbl = wx.StaticText(panel, label=f"Label {i+1}:")
             name_ctrl = wx.TextCtrl(panel, size=(150, -1))
@@ -1324,14 +1425,50 @@ Description:
             fsizer.Add(val_ctrl, 1)
             sizer.Add(fsizer, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
             field_inputs.append((name_ctrl, val_ctrl))
+
+        sizer.Add(wx.StaticText(panel, label="Avatar &Description:"), 0, wx.LEFT | wx.RIGHT, 10)
+        avatar_desc_input = wx.TextCtrl(panel, value=profile.get("avatar_description", ""), size=(-1, 30))
+        sizer.Add(avatar_desc_input, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
+
+        sizer.Add(wx.StaticText(panel, label="Header Des&cription:"), 0, wx.LEFT | wx.RIGHT, 10)
+        header_desc_input = wx.TextCtrl(panel, value=profile.get("header_description", ""), size=(-1, 30))
+        sizer.Add(header_desc_input, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
+
+        sizer.Add(wx.StaticText(panel, label="Attribution &Domains, comma separated:"), 0, wx.LEFT | wx.RIGHT, 10)
+        attribution_input = wx.TextCtrl(panel, value=", ".join(profile.get("attribution_domains", []) or []), size=(-1, 30))
+        sizer.Add(attribution_input, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
         
         locked_check = wx.CheckBox(panel, label="&Lock account (require follow approval)")
-        locked_check.SetValue(self.me.get('locked', False))
+        locked_check.SetValue(profile.get('locked', self.me.get('locked', False)))
         sizer.Add(locked_check, 0, wx.LEFT | wx.RIGHT, 10)
         
         bot_check = wx.CheckBox(panel, label="Mark as &bot account")
-        bot_check.SetValue(self.me.get('bot', False))
+        bot_check.SetValue(profile.get('bot', self.me.get('bot', False)))
         sizer.Add(bot_check, 0, wx.LEFT | wx.RIGHT | wx.TOP, 10)
+
+        discoverable_check = wx.CheckBox(panel, label="Show in profile directory and discovery")
+        discoverable_check.SetValue(bool(profile.get("discoverable", False)))
+        sizer.Add(discoverable_check, 0, wx.LEFT | wx.RIGHT | wx.TOP, 10)
+
+        indexable_check = wx.CheckBox(panel, label="Allow public posts to be searchable")
+        indexable_check.SetValue(bool(profile.get("indexable", not profile.get("noindex", False))))
+        sizer.Add(indexable_check, 0, wx.LEFT | wx.RIGHT | wx.TOP, 10)
+
+        hide_collections_check = wx.CheckBox(panel, label="Hide follows and followers")
+        hide_collections_check.SetValue(bool(profile.get("hide_collections", False)))
+        sizer.Add(hide_collections_check, 0, wx.LEFT | wx.RIGHT | wx.TOP, 10)
+
+        show_media_check = wx.CheckBox(panel, label="Show Media tab")
+        show_media_check.SetValue(bool(profile.get("show_media", True)))
+        sizer.Add(show_media_check, 0, wx.LEFT | wx.RIGHT | wx.TOP, 10)
+
+        show_media_replies_check = wx.CheckBox(panel, label="Include replies in Media tab")
+        show_media_replies_check.SetValue(bool(profile.get("show_media_replies", True)))
+        sizer.Add(show_media_replies_check, 0, wx.LEFT | wx.RIGHT | wx.TOP, 10)
+
+        show_featured_check = wx.CheckBox(panel, label="Show Featured tab")
+        show_featured_check.SetValue(bool(profile.get("show_featured", True)))
+        sizer.Add(show_featured_check, 0, wx.LEFT | wx.RIGHT | wx.TOP, 10)
         
         btn_sizer = wx.BoxSizer(wx.HORIZONTAL)
         save_btn = wx.Button(panel, label="&Save")
@@ -1348,15 +1485,36 @@ Description:
                     n = name_ctrl.GetValue().strip()
                     v = val_ctrl.GetValue().strip()
                     if n or v:
-                        new_fields.append((n, v))
-                
-                self.mastodon.account_update_credentials(
-                    display_name=name_input.GetValue().strip(),
-                    note=bio_input.GetValue().strip(),
-                    locked=locked_check.IsChecked(),
-                    bot=bot_check.IsChecked(),
-                    fields=new_fields if new_fields else None,
-                )
+                        new_fields.append({"name": n, "value": v})
+
+                if profile_api_available:
+                    update_current_profile(
+                        self.mastodon,
+                        {
+                            "display_name": name_input.GetValue().strip(),
+                            "note": bio_input.GetValue().strip(),
+                            "locked": locked_check.IsChecked(),
+                            "bot": bot_check.IsChecked(),
+                            "discoverable": discoverable_check.IsChecked(),
+                            "hide_collections": hide_collections_check.IsChecked(),
+                            "indexable": indexable_check.IsChecked(),
+                            "show_media": show_media_check.IsChecked(),
+                            "show_media_replies": show_media_replies_check.IsChecked(),
+                            "show_featured": show_featured_check.IsChecked(),
+                            "avatar_description": avatar_desc_input.GetValue().strip(),
+                            "header_description": header_desc_input.GetValue().strip(),
+                            "attribution_domains": [d.strip() for d in attribution_input.GetValue().split(",") if d.strip()],
+                            "fields_attributes": new_fields,
+                        },
+                    )
+                else:
+                    self.mastodon.account_update_credentials(
+                        display_name=name_input.GetValue().strip(),
+                        note=bio_input.GetValue().strip(),
+                        locked=locked_check.IsChecked(),
+                        bot=bot_check.IsChecked(),
+                        fields=[(field["name"], field["value"]) for field in new_fields] if new_fields else None,
+                    )
                 self.me = self.mastodon.me()
                 wx.MessageBox("Profile updated successfully!", "Profile")
                 dlg.Close()
@@ -1364,9 +1522,6 @@ Description:
                 wx.MessageBox(f"Error updating profile: {ex}", "Error")
         
         save_btn.Bind(wx.EVT_BUTTON, on_save)
-        
-        all_widgets = [name_input, bio_input, locked_check, bot_check, save_btn, cancel_btn]
-        all_labels = list(panel.GetChildren())
         
         if is_windows_dark_mode():
             dc = wx.Colour(40, 40, 40)
@@ -1794,6 +1949,376 @@ Description:
             for w in [members_listbox, add_btn, remove_btn, close_btn]:
                 w.SetBackgroundColour(dc); w.SetForegroundColour(lt)
         
+        dlg.ShowModal()
+        dlg.Destroy()
+
+    def _collection_label(self, collection, prefix=""):
+        name = collection.get("name") or "Untitled collection"
+        count = collection.get("item_count", 0)
+        tag = (collection.get("tag") or {}).get("name") or collection.get("tag_name") or ""
+        tag_text = f", #{tag.lstrip('#')}" if tag else ""
+        sensitive = ", sensitive" if collection.get("sensitive") else ""
+        return f"{prefix}{name} ({count} accounts{tag_text}{sensitive})"
+
+    def _collection_item_for_account(self, collection, account_id):
+        for item in collection.get("items", []) or []:
+            if str(item.get("account_id")) == str(account_id):
+                return item
+        return None
+
+    def _show_collection_accounts(self, collection, can_manage=False):
+        try:
+            data = fetch_collection(self.mastodon, collection["id"])
+            accounts = data.get("accounts", []) if isinstance(data, dict) else []
+            full_collection = data.get("collection", collection) if isinstance(data, dict) else collection
+        except Exception as e:
+            wx.MessageBox(f"Error loading collection: {e}", "Collections", wx.OK | wx.ICON_ERROR)
+            return
+
+        dlg = wx.Dialog(self, title=f"Collection: {full_collection.get('name', 'Untitled')}", size=(560, 420))
+        panel = wx.Panel(dlg)
+        sizer = wx.BoxSizer(wx.VERTICAL)
+        info = wx.TextCtrl(
+            panel,
+            value=strip_html(full_collection.get("description", "") or "") or "No description.",
+            style=wx.TE_MULTILINE | wx.TE_READONLY,
+            size=(-1, 80),
+        )
+        sizer.Add(info, 0, wx.EXPAND | wx.ALL, 10)
+        accounts_list = wx.ListBox(panel, style=wx.LB_SINGLE, size=(-1, 220))
+        for account in accounts:
+            display = account.get("display_name") or account.get("username", "")
+            acct = account.get("acct", "")
+            accounts_list.Append(f"{display} (@{acct})")
+        sizer.Add(accounts_list, 1, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
+
+        btn_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        view_btn = wx.Button(panel, label="&View Profile")
+        remove_btn = wx.Button(panel, label="&Remove") if can_manage else None
+        open_btn = wx.Button(panel, label="Open in &Browser")
+        close_btn = wx.Button(panel, id=wx.ID_CANCEL, label="&Close")
+        btn_sizer.Add(view_btn, 0, wx.ALL, 5)
+        if remove_btn:
+            btn_sizer.Add(remove_btn, 0, wx.ALL, 5)
+        btn_sizer.Add(open_btn, 0, wx.ALL, 5)
+        btn_sizer.AddStretchSpacer()
+        btn_sizer.Add(close_btn, 0, wx.ALL, 5)
+        sizer.Add(btn_sizer, 0, wx.EXPAND | wx.ALL, 5)
+        panel.SetSizer(sizer)
+
+        def selected_account():
+            sel = accounts_list.GetSelection()
+            if sel == wx.NOT_FOUND:
+                return None
+            return accounts[sel]
+
+        def on_view(e):
+            account = selected_account()
+            if not account:
+                return
+            try:
+                account = self.mastodon.account(account["id"])
+            except Exception:
+                pass
+            profile_dlg = ViewProfileDialog(dlg, account, self.mastodon, self.me)
+            profile_dlg.ShowModal()
+            profile_dlg.Destroy()
+
+        def on_remove(e):
+            account = selected_account()
+            if not account:
+                return
+            item = self._collection_item_for_account(full_collection, account.get("id"))
+            if not item:
+                wx.MessageBox("This account cannot be removed from the collection response.", "Collections")
+                return
+            if wx.MessageBox("Remove this account from the collection?", "Collections", wx.YES_NO | wx.ICON_QUESTION) != wx.YES:
+                return
+            try:
+                remove_collection_item(self.mastodon, full_collection["id"], item["id"])
+                index = accounts.index(account)
+                accounts.pop(index)
+                accounts_list.Delete(index)
+            except Exception as ex:
+                wx.MessageBox(f"Error removing account: {ex}", "Collections", wx.OK | wx.ICON_ERROR)
+
+        def on_open(e):
+            url = full_collection.get("url")
+            if url:
+                webbrowser.open(url)
+
+        view_btn.Bind(wx.EVT_BUTTON, on_view)
+        accounts_list.Bind(wx.EVT_LISTBOX_DCLICK, on_view)
+        if remove_btn:
+            remove_btn.Bind(wx.EVT_BUTTON, on_remove)
+        open_btn.Bind(wx.EVT_BUTTON, on_open)
+
+        if is_windows_dark_mode():
+            dc = wx.Colour(40, 40, 40)
+            lt = wx.WHITE
+            WxMswDarkMode().enable(dlg)
+            dlg.SetBackgroundColour(dc); panel.SetBackgroundColour(dc)
+            widgets = [info, accounts_list, view_btn, open_btn, close_btn]
+            if remove_btn:
+                widgets.append(remove_btn)
+            for w in widgets:
+                w.SetBackgroundColour(dc); w.SetForegroundColour(lt)
+
+        dlg.ShowModal()
+        dlg.Destroy()
+
+    def _collection_form(self, parent, title, initial=None, include_accounts=False):
+        initial = initial or {}
+        dlg = wx.Dialog(parent, title=title, size=(520, 430 if include_accounts else 380))
+        panel = wx.Panel(dlg)
+        sizer = wx.BoxSizer(wx.VERTICAL)
+
+        name = wx.TextCtrl(panel, value=initial.get("name", ""), size=(-1, 30))
+        desc = wx.TextCtrl(panel, value=strip_html(initial.get("description", "") or ""), style=wx.TE_MULTILINE, size=(-1, 80))
+        language = wx.TextCtrl(panel, value=initial.get("language", "") or "", size=(-1, 30))
+        tag = wx.TextCtrl(panel, value=((initial.get("tag") or {}).get("name") or ""), size=(-1, 30))
+        sensitive = wx.CheckBox(panel, label="Mark collection as &sensitive")
+        discoverable = wx.CheckBox(panel, label="Show collection on profile and in discovery")
+        sensitive.SetValue(bool(initial.get("sensitive", False)))
+        discoverable.SetValue(bool(initial.get("discoverable", True)))
+
+        account_ids = None
+        for label, control in [
+            ("&Name:", name),
+            ("&Description:", desc),
+            ("&Language code:", language),
+            ("&Topic hashtag:", tag),
+        ]:
+            sizer.Add(wx.StaticText(panel, label=label), 0, wx.LEFT | wx.RIGHT | wx.TOP, 10)
+            sizer.Add(control, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
+
+        if include_accounts:
+            account_ids = wx.TextCtrl(panel, size=(-1, 30))
+            sizer.Add(wx.StaticText(panel, label="Initial account &IDs, comma separated:"), 0, wx.LEFT | wx.RIGHT | wx.TOP, 10)
+            sizer.Add(account_ids, 0, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
+
+        sizer.Add(sensitive, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
+        sizer.Add(discoverable, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
+        btn_sizer = dlg.CreateStdDialogButtonSizer(wx.OK | wx.CANCEL)
+        sizer.Add(btn_sizer, 0, wx.ALIGN_RIGHT | wx.ALL, 10)
+        panel.SetSizer(sizer)
+
+        result = None
+        if dlg.ShowModal() == wx.ID_OK:
+            result = {
+                "name": name.GetValue().strip(),
+                "description": desc.GetValue().strip(),
+                "language": language.GetValue().strip() or None,
+                "tag_name": tag.GetValue().strip().lstrip("#") or None,
+                "sensitive": sensitive.IsChecked(),
+                "discoverable": discoverable.IsChecked(),
+            }
+            if include_accounts and account_ids:
+                ids = [item.strip() for item in account_ids.GetValue().split(",") if item.strip()]
+                if ids:
+                    result["account_ids"] = ids
+        dlg.Destroy()
+        return result
+
+    def on_my_collections(self, event):
+        if not self.mastodon or not self.me:
+            return
+
+        dlg = wx.Dialog(self, title="Collections", size=(620, 430))
+        panel = wx.Panel(dlg)
+        sizer = wx.BoxSizer(wx.VERTICAL)
+        collections_list = wx.ListBox(panel, style=wx.LB_SINGLE, size=(-1, 280))
+        sizer.Add(collections_list, 1, wx.EXPAND | wx.ALL, 10)
+
+        entries = []
+
+        def refresh():
+            entries.clear()
+            collections_list.Clear()
+            try:
+                owned = fetch_account_collections(self.mastodon, self.me["id"])
+                included = fetch_account_in_collections(self.mastodon, self.me["id"])
+            except Exception as ex:
+                wx.MessageBox(f"Error loading collections: {ex}", "Collections", wx.OK | wx.ICON_ERROR)
+                return
+            for collection in owned:
+                entries.append(("owned", collection))
+                collections_list.Append(self._collection_label(collection, "Mine: "))
+            for collection in included:
+                if str(collection.get("account_id")) == str(self.me["id"]):
+                    continue
+                entries.append(("included", collection))
+                collections_list.Append(self._collection_label(collection, "Featured in: "))
+            if entries:
+                collections_list.SetSelection(0)
+
+        def selected_entry():
+            sel = collections_list.GetSelection()
+            if sel == wx.NOT_FOUND:
+                return None, None
+            return entries[sel]
+
+        btn_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        view_btn = wx.Button(panel, label="&View")
+        create_btn = wx.Button(panel, label="&Create")
+        edit_btn = wx.Button(panel, label="&Edit")
+        delete_btn = wx.Button(panel, label="&Delete")
+        add_author_btn = wx.Button(panel, label="Add Selected &Author")
+        revoke_btn = wx.Button(panel, label="&Revoke Inclusion")
+        close_btn = wx.Button(panel, id=wx.ID_CANCEL, label="C&lose")
+        for btn in [view_btn, create_btn, edit_btn, delete_btn, add_author_btn, revoke_btn, close_btn]:
+            btn_sizer.Add(btn, 0, wx.ALL, 3)
+        sizer.Add(btn_sizer, 0, wx.ALL, 5)
+        panel.SetSizer(sizer)
+
+        def on_view(e):
+            kind, collection = selected_entry()
+            if collection:
+                self._show_collection_accounts(collection, can_manage=(kind == "owned"))
+
+        def on_create(e):
+            data = self._collection_form(dlg, "Create Collection", include_accounts=True)
+            if not data or not data.get("name"):
+                return
+            try:
+                create_collection(self.mastodon, data)
+                refresh()
+            except Exception as ex:
+                wx.MessageBox(f"Error creating collection: {ex}", "Collections", wx.OK | wx.ICON_ERROR)
+
+        def on_edit(e):
+            kind, collection = selected_entry()
+            if kind != "owned":
+                wx.MessageBox("Only your own collections can be edited.", "Collections")
+                return
+            data = self._collection_form(dlg, "Edit Collection", collection)
+            if not data or not data.get("name"):
+                return
+            try:
+                update_collection(self.mastodon, collection["id"], data)
+                refresh()
+            except Exception as ex:
+                wx.MessageBox(f"Error updating collection: {ex}", "Collections", wx.OK | wx.ICON_ERROR)
+
+        def on_delete(e):
+            kind, collection = selected_entry()
+            if kind != "owned":
+                wx.MessageBox("Only your own collections can be deleted.", "Collections")
+                return
+            if wx.MessageBox(f"Delete collection '{collection.get('name', 'Untitled')}'?", "Collections", wx.YES_NO | wx.ICON_QUESTION) != wx.YES:
+                return
+            try:
+                delete_collection(self.mastodon, collection["id"])
+                refresh()
+            except Exception as ex:
+                wx.MessageBox(f"Error deleting collection: {ex}", "Collections", wx.OK | wx.ICON_ERROR)
+
+        def on_add_author(e):
+            kind, collection = selected_entry()
+            if kind != "owned":
+                wx.MessageBox("Select one of your own collections first.", "Collections")
+                return
+            status, _ = self.get_selected_status()
+            if not status:
+                wx.MessageBox("Select a post from the author you want to add first.", "Collections")
+                return
+            account = (status.get("reblog") or status).get("account", {})
+            if not account.get("id"):
+                return
+            try:
+                add_collection_account(self.mastodon, collection["id"], account["id"])
+                wx.MessageBox("Author added to the collection.", "Collections")
+                refresh()
+            except Exception as ex:
+                wx.MessageBox(f"Error adding author: {ex}", "Collections", wx.OK | wx.ICON_ERROR)
+
+        def on_revoke(e):
+            kind, collection = selected_entry()
+            if kind != "included":
+                wx.MessageBox("Select a collection you are featured in first.", "Collections")
+                return
+            item = self._collection_item_for_account(collection, self.me["id"])
+            if not item:
+                wx.MessageBox("This collection response did not include your collection item ID.", "Collections")
+                return
+            if wx.MessageBox("Remove yourself from this collection?", "Collections", wx.YES_NO | wx.ICON_QUESTION) != wx.YES:
+                return
+            try:
+                revoke_collection_item(self.mastodon, collection["id"], item["id"])
+                refresh()
+            except Exception as ex:
+                wx.MessageBox(f"Error revoking inclusion: {ex}", "Collections", wx.OK | wx.ICON_ERROR)
+
+        view_btn.Bind(wx.EVT_BUTTON, on_view)
+        collections_list.Bind(wx.EVT_LISTBOX_DCLICK, on_view)
+        create_btn.Bind(wx.EVT_BUTTON, on_create)
+        edit_btn.Bind(wx.EVT_BUTTON, on_edit)
+        delete_btn.Bind(wx.EVT_BUTTON, on_delete)
+        add_author_btn.Bind(wx.EVT_BUTTON, on_add_author)
+        revoke_btn.Bind(wx.EVT_BUTTON, on_revoke)
+
+        if is_windows_dark_mode():
+            dc = wx.Colour(40, 40, 40)
+            lt = wx.WHITE
+            WxMswDarkMode().enable(dlg)
+            dlg.SetBackgroundColour(dc); panel.SetBackgroundColour(dc)
+            for w in [collections_list, view_btn, create_btn, edit_btn, delete_btn, add_author_btn, revoke_btn, close_btn]:
+                w.SetBackgroundColour(dc); w.SetForegroundColour(lt)
+
+        refresh()
+        dlg.ShowModal()
+        dlg.Destroy()
+
+    def on_view_user_collections(self, event):
+        status, _ = self.get_selected_status()
+        if not status:
+            return
+        account = (status.get("reblog") or status).get("account", {})
+        if not account.get("id"):
+            return
+        try:
+            collections = fetch_account_collections(self.mastodon, account["id"])
+        except Exception as e:
+            wx.MessageBox(f"Error loading collections: {e}", "Collections", wx.OK | wx.ICON_ERROR)
+            return
+        if not collections:
+            wx.MessageBox("This user has no visible collections.", "Collections")
+            return
+
+        dlg = wx.Dialog(self, title="User Collections", size=(540, 360))
+        panel = wx.Panel(dlg)
+        sizer = wx.BoxSizer(wx.VERTICAL)
+        listbox = wx.ListBox(panel, style=wx.LB_SINGLE, size=(-1, 240))
+        for collection in collections:
+            listbox.Append(self._collection_label(collection))
+        sizer.Add(listbox, 1, wx.EXPAND | wx.ALL, 10)
+        btn_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        view_btn = wx.Button(panel, label="&View")
+        close_btn = wx.Button(panel, id=wx.ID_CANCEL, label="&Close")
+        btn_sizer.Add(view_btn, 0, wx.ALL, 5)
+        btn_sizer.Add(close_btn, 0, wx.ALL, 5)
+        sizer.Add(btn_sizer, 0, wx.ALIGN_RIGHT | wx.ALL, 5)
+        panel.SetSizer(sizer)
+
+        def on_view(e):
+            sel = listbox.GetSelection()
+            if sel == wx.NOT_FOUND:
+                return
+            self._show_collection_accounts(collections[sel], can_manage=False)
+
+        view_btn.Bind(wx.EVT_BUTTON, on_view)
+        listbox.Bind(wx.EVT_LISTBOX_DCLICK, on_view)
+
+        if is_windows_dark_mode():
+            dc = wx.Colour(40, 40, 40)
+            lt = wx.WHITE
+            WxMswDarkMode().enable(dlg)
+            dlg.SetBackgroundColour(dc); panel.SetBackgroundColour(dc)
+            for w in [listbox, view_btn, close_btn]:
+                w.SetBackgroundColour(dc); w.SetForegroundColour(lt)
+
+        if collections:
+            listbox.SetSelection(0)
         dlg.ShowModal()
         dlg.Destroy()
 
@@ -2420,9 +2945,9 @@ Description:
                 elif key == "sent": data = [s for s in self.mastodon.account_statuses(self.me["id"], max_id=last_id, limit=40) if not s.get("reblog")]
                 elif key == "favourites": data = self.mastodon.favourites(max_id=last_id, limit=40)
                 elif key == "bookmarks": data = self.mastodon.bookmarks(max_id=last_id, limit=40)
-                elif key == "notifications": data = self.mastodon.notifications(max_id=last_id, limit=40)
-                elif key == "mentions": data = [n["status"] for n in self.mastodon.notifications(types=["mention"], max_id=last_id, limit=40) if n.get("status")]
-                elif key.startswith("user:"): data = self.mastodon.account_statuses(key.split(":", 1)[1], max_id=last_id, limit=40)
+                elif key == "notifications": data = fetch_notifications(self.mastodon, max_id=last_id, limit=40)
+                elif key == "mentions": data = [n["status"] for n in fetch_notifications(self.mastodon, types=["mention"], max_id=last_id, limit=40) if n.get("status")]
+                elif key.startswith("user:"): data = fetch_account_statuses(self.mastodon, key.split(":", 1)[1], exclude_direct=True, max_id=last_id, limit=40)
                 elif key.startswith("hashtag:"): data = self.mastodon.timeline_hashtag(key.split(":", 1)[1], max_id=last_id, limit=40)
                 elif key.startswith("list:"): data = self.mastodon.timeline_list(key.split(":", 1)[1], max_id=last_id, limit=40)
                 else: data = []
@@ -2492,7 +3017,7 @@ Description:
 
     def add_notification(self, notification):
         ntype = notification.get("type")
-        if ntype in ["favourite", "reblog", "follow", "follow_request"]:
+        if ntype in ["favourite", "reblog", "follow", "follow_request", "status", "added_to_collection", "collection_update"]:
             notificationsnd and notificationsnd.play()
         elif ntype == "mention":
             mentionsnd and mentionsnd.play()
@@ -2546,9 +3071,9 @@ Description:
                 data = [c.get("last_status") for c in convos if c.get("last_status")]
             elif timeline == "favourites": data = self.mastodon.favourites(limit=40)
             elif timeline == "bookmarks": data = self.mastodon.bookmarks(limit=40)
-            elif timeline == "notifications": data = self.mastodon.notifications(limit=40)
-            elif timeline == "mentions": data = [n["status"] for n in self.mastodon.notifications(types=["mention"], limit=40) if n.get("status")]
-            elif timeline.startswith("user:"): data = self.mastodon.account_statuses(timeline.split(":", 1)[1], limit=40)
+            elif timeline == "notifications": data = fetch_notifications(self.mastodon, limit=40)
+            elif timeline == "mentions": data = [n["status"] for n in fetch_notifications(self.mastodon, types=["mention"], limit=40) if n.get("status")]
+            elif timeline.startswith("user:"): data = fetch_account_statuses(self.mastodon, timeline.split(":", 1)[1], exclude_direct=True, limit=40)
             elif timeline.startswith("search:"): data = self.mastodon.search_v2(timeline.split(":", 1)[1], result_type="statuses").get("statuses", [])
             elif timeline.startswith("hashtag:"): data = self.mastodon.timeline_hashtag(timeline.split(":", 1)[1], limit=40)
             elif timeline.startswith("list:"): data = self.mastodon.timeline_list(timeline.split(":", 1)[1], limit=40)
@@ -2604,6 +3129,12 @@ Description:
 
     def format_notification_for_display(self, notification):
         ntype, account = notification.get("type"), notification.get("account", {})
+        fallback = notification.get("fallback") or {}
+        if fallback:
+            title = strip_html(fallback.get("title", "") or "").strip()
+            summary = strip_html(fallback.get("summary", "") or "").strip()
+            details = strip_html(fallback.get("details", "") or "").strip()
+            return ": ".join(part for part in [title, summary, details] if part) or f"Unsupported notification: {ntype}"
         user = account.get("display_name") or account.get("username", "Unknown")
         status = notification.get("status")
         content = ""
@@ -2618,10 +3149,14 @@ Description:
         if ntype == "mention": return f"{user} mentioned you in a post that is no longer available."
         if ntype == "follow": return f"{user} followed you."
         if ntype == "follow_request": return f"{user} requested to follow you."
+        if ntype == "status" and status: return f"{user} posted: {content}"
+        if ntype == "status": return f"{user} posted a status that is no longer available."
         if ntype == "poll" and status and status.get("poll", {}).get("expired"): return f"Poll ended in {user}'s post: {content}"
         if ntype == "poll": return f"A poll notification from {user} is no longer available."
         if ntype == "update" and status: return f"{user}'s post you interacted with was edited: {content}"
         if ntype == "update": return f"{user}'s edited post is no longer available."
+        if ntype == "added_to_collection": return f"{user} added you to a collection."
+        if ntype == "collection_update": return f"{user} updated a collection you are featured in."
         return f"{user}: {ntype}"
 
     def row_from_status(self, status):

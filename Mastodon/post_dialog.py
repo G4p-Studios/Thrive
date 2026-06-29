@@ -250,6 +250,10 @@ Favorited {favs} times.
 {replies} replies
 Privacy: {privacy}
 Language: {language}"""
+		card = self.status.get("card") or {}
+		if isinstance(card, dict) and card.get("missing_attribution"):
+			card_title = card.get("title") or card.get("url") or "link preview"
+			detail_text += f"\nAttribution warning: {card_title} claims to credit you, but its domain is not in your attribution domains."
 
 		# Add quote info if present
 		quote_obj = self.status.get('quote')
