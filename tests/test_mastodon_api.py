@@ -11,8 +11,11 @@ from mastodon_api import (
 	SUPPORTED_NOTIFICATION_TYPES,
 	collections_from_response,
 	fetch_account_statuses,
+	fetch_notification_policy,
 	fetch_notifications,
+	search_v2,
 	update_current_profile,
+	update_notification_policy,
 )
 
 
@@ -37,6 +40,27 @@ class MastodonApiTests(unittest.TestCase):
 		self.assertEqual(params["limit"], 40)
 		self.assertEqual(params["types"], ["mention"])
 		self.assertEqual(params["supported_types"], SUPPORTED_NOTIFICATION_TYPES)
+		self.assertFalse(use_json)
+
+	def test_notification_policy_helpers_use_v2_policy_endpoint(self):
+		api = FakeMastodon()
+
+		fetch_notification_policy(api)
+		update_notification_policy(api, {"for_bots": "filter"})
+
+		self.assertEqual(api.calls[0], ("GET", "/api/v2/notifications/policy", {}, False))
+		self.assertEqual(api.calls[1], ("PATCH", "/api/v2/notifications/policy", {"for_bots": "filter"}, False))
+
+	def test_search_v2_can_resolve_collection_urls(self):
+		api = FakeMastodon()
+
+		search_v2(api, "https://example.social/collections/1", resolve=True)
+
+		method, endpoint, params, use_json = api.calls[0]
+		self.assertEqual(method, "GET")
+		self.assertEqual(endpoint, "/api/v2/search")
+		self.assertEqual(params["q"], "https://example.social/collections/1")
+		self.assertEqual(params["resolve"], True)
 		self.assertFalse(use_json)
 
 	def test_account_statuses_can_exclude_direct_profile_posts(self):

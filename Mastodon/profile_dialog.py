@@ -112,6 +112,14 @@ class ViewProfileDialog(wx.Dialog):
 			preferences.append("Featured tab shown" if account.get("show_featured") else "Featured tab hidden")
 		avatar_description = account.get("avatar_description")
 		header_description = account.get("header_description")
+		feature_approval = account.get("feature_approval") or {}
+		feature_approval_text = None
+		if isinstance(feature_approval, dict) and feature_approval:
+			automatic = ", ".join(feature_approval.get("automatic") or []) or "nobody"
+			manual = ", ".join(feature_approval.get("manual") or []) or "nobody"
+			feature_approval_text = f"automatic for {automatic}; manual review for {manual}"
+			if feature_approval.get("current_user"):
+				feature_approval_text += f"; you are {feature_approval.get('current_user')}"
 
 		info = f"""Display Name: {display_name}
 Username: {acct}
@@ -128,6 +136,8 @@ Website: {website}"""
 			info += f"\nHeader description: {header_description}"
 		if preferences:
 			info += "\nProfile preferences: " + ", ".join(preferences)
+		if feature_approval_text:
+			info += f"\nCollection approval: {feature_approval_text}"
 
 		# Get relationship info
 		if self.mastodon and self.me and account.get('id') != self.me.get('id'):

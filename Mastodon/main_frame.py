@@ -19,12 +19,15 @@ from mastodon_api import (
 	fetch_annual_report_state,
 	fetch_collection,
 	fetch_current_profile,
+	fetch_notification_policy,
 	fetch_notifications,
 	generate_annual_report,
 	remove_collection_item,
 	revoke_collection_item,
+	search_v2,
 	update_collection,
 	update_current_profile,
+	update_notification_policy,
 )
 from sound_lib import stream
 from sound_lib.main import BassError
@@ -296,7 +299,9 @@ class ThriveFrame(wx.Frame):
         menubar = wx.MenuBar()
         settings_menu = wx.Menu()
         settings_item = settings_menu.Append(wx.ID_ANY, "&Settings...\tAlt-S", "Open Settings")
+        notification_policy_item = settings_menu.Append(wx.ID_ANY, "Notification &Filters...", "Choose which notifications are accepted, filtered, or dropped")
         self.Bind(wx.EVT_MENU, self.open_settings, settings_item)
+        self.Bind(wx.EVT_MENU, self.on_notification_policy, notification_policy_item)
         menubar.Append(settings_menu, "&Client")
         view_menu = wx.Menu()
         refresh_item = view_menu.Append(wx.ID_REFRESH, "&Refresh	F5", "Reload current timeline")
@@ -1055,6 +1060,9 @@ class ThriveFrame(wx.Frame):
         if dlg.ShowModal() == wx.ID_OK:
             query = dlg.GetValue().strip()
             if query:
+                if self._open_search_collection(query):
+                    dlg.Destroy()
+                    return
                 if searchsnd: searchsnd.play()
                 timeline_key = f"search:{query}"
                 self.timelines_data[timeline_key] = []
@@ -1065,6 +1073,58 @@ class ThriveFrame(wx.Frame):
                 self.timeline_tree.SelectItem(self.timeline_nodes[timeline_key])
                 threading.Thread(target=self.load_timeline, args=(timeline_key,), daemon=True).start()
         dlg.Destroy()
+
+    def _open_search_collection(self, query):
+        if not query.lower().startswith(("http://", "https://")):
+            return False
+        try:
+            results = search_v2(self.mastodon, query, resolve=True)
+        except Exception:
+            return False
+        collections = results.get("collections") or []
+        if not collections:
+            return False
+        if len(collections) == 1:
+            self._show_collection_accounts(collections[0], can_manage=False)
+            return True
+
+        dlg = wx.Dialog(self, title="Collection Search Results", size=(540, 360))
+        panel = wx.Panel(dlg)
+        sizer = wx.BoxSizer(wx.VERTICAL)
+        listbox = wx.ListBox(panel, style=wx.LB_SINGLE, size=(-1, 240))
+        for collection in collections:
+            listbox.Append(self._collection_label(collection))
+        sizer.Add(listbox, 1, wx.EXPAND | wx.ALL, 10)
+
+        btn_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        open_btn = wx.Button(panel, label="&Open")
+        close_btn = wx.Button(panel, id=wx.ID_CANCEL, label="&Close")
+        btn_sizer.Add(open_btn, 0, wx.ALL, 5)
+        btn_sizer.Add(close_btn, 0, wx.ALL, 5)
+        sizer.Add(btn_sizer, 0, wx.ALIGN_RIGHT | wx.ALL, 5)
+        panel.SetSizer(sizer)
+
+        def on_open(e):
+            sel = listbox.GetSelection()
+            if sel == wx.NOT_FOUND:
+                return
+            self._show_collection_accounts(collections[sel], can_manage=False)
+
+        open_btn.Bind(wx.EVT_BUTTON, on_open)
+        listbox.Bind(wx.EVT_LISTBOX_DCLICK, on_open)
+
+        if is_windows_dark_mode():
+            dc = wx.Colour(40, 40, 40)
+            lt = wx.WHITE
+            WxMswDarkMode().enable(dlg)
+            dlg.SetBackgroundColour(dc); panel.SetBackgroundColour(dc)
+            for w in [listbox, open_btn, close_btn]:
+                w.SetBackgroundColour(dc); w.SetForegroundColour(lt)
+
+        listbox.SetSelection(0)
+        dlg.ShowModal()
+        dlg.Destroy()
+        return True
 
     def on_open_user_timeline(self, event):
         status, _ = self.get_selected_status()
@@ -2733,6 +2793,70 @@ Description:
         if dlg.ShowModal() == wx.ID_OK: load_sounds_globally()
         dlg.Destroy()
 
+    def on_notification_policy(self, event):
+        policy_fields = [
+            ("for_not_following", "People you do not follow"),
+            ("for_not_followers", "People who do not follow you"),
+            ("for_new_accounts", "New accounts"),
+            ("for_private_mentions", "Private mentions"),
+            ("for_limited_accounts", "Limited accounts"),
+            ("for_bots", "Bot accounts"),
+        ]
+        choices = [("Accept", "accept"), ("Filter", "filter"), ("Drop", "drop")]
+        try:
+            policy = fetch_notification_policy(self.mastodon) or {}
+        except Exception as ex:
+            wx.MessageBox(f"Error loading notification filters: {ex}", "Notification Filters", wx.OK | wx.ICON_ERROR)
+            return
+
+        dlg = wx.Dialog(self, title="Notification Filters", size=(520, 430))
+        panel = wx.Panel(dlg)
+        sizer = wx.BoxSizer(wx.VERTICAL)
+        controls = {}
+
+        summary = policy.get("summary", {})
+        pending_count = summary.get("pending_notifications_count")
+        requests_count = summary.get("pending_requests_count")
+        if pending_count is not None or requests_count is not None:
+            text = f"Filtered notifications: {pending_count or 0}; notification requests: {requests_count or 0}"
+            sizer.Add(wx.StaticText(panel, label=text), 0, wx.ALL, 10)
+
+        grid = wx.FlexGridSizer(rows=0, cols=2, vgap=8, hgap=8)
+        grid.AddGrowableCol(1, 1)
+        for key, label in policy_fields:
+            if key == "for_bots" and key not in policy:
+                continue
+            choice = wx.Choice(panel, choices=[item[0] for item in choices])
+            current = policy.get(key, "accept")
+            choice.SetSelection(next((i for i, item in enumerate(choices) if item[1] == current), 0))
+            controls[key] = choice
+            grid.Add(wx.StaticText(panel, label=f"{label}: "), 0, wx.ALIGN_CENTER_VERTICAL)
+            grid.Add(choice, 1, wx.EXPAND)
+        sizer.Add(grid, 1, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
+
+        btn_sizer = dlg.CreateStdDialogButtonSizer(wx.OK | wx.CANCEL)
+        sizer.Add(btn_sizer, 0, wx.ALIGN_RIGHT | wx.ALL, 10)
+        panel.SetSizer(sizer)
+
+        if is_windows_dark_mode():
+            dc = wx.Colour(40, 40, 40)
+            lt = wx.WHITE
+            WxMswDarkMode().enable(dlg)
+            dlg.SetBackgroundColour(dc); panel.SetBackgroundColour(dc)
+            for child in panel.GetChildren():
+                child.SetBackgroundColour(dc); child.SetForegroundColour(lt)
+
+        if dlg.ShowModal() == wx.ID_OK:
+            updated_policy = {}
+            for key, choice in controls.items():
+                updated_policy[key] = choices[choice.GetSelection()][1]
+            try:
+                update_notification_policy(self.mastodon, updated_policy)
+                wx.MessageBox("Notification filters saved.", "Notification Filters")
+            except Exception as ex:
+                wx.MessageBox(f"Error saving notification filters: {ex}", "Notification Filters", wx.OK | wx.ICON_ERROR)
+        dlg.Destroy()
+
     def on_toggle_cw(self, event):
         show = self.cw_toggle.IsChecked()
         self.cw_input.Show(show)
@@ -3074,7 +3198,7 @@ Description:
             elif timeline == "notifications": data = fetch_notifications(self.mastodon, limit=40)
             elif timeline == "mentions": data = [n["status"] for n in fetch_notifications(self.mastodon, types=["mention"], limit=40) if n.get("status")]
             elif timeline.startswith("user:"): data = fetch_account_statuses(self.mastodon, timeline.split(":", 1)[1], exclude_direct=True, limit=40)
-            elif timeline.startswith("search:"): data = self.mastodon.search_v2(timeline.split(":", 1)[1], result_type="statuses").get("statuses", [])
+            elif timeline.startswith("search:"): data = search_v2(self.mastodon, timeline.split(":", 1)[1], type="statuses").get("statuses", [])
             elif timeline.startswith("hashtag:"): data = self.mastodon.timeline_hashtag(timeline.split(":", 1)[1], limit=40)
             elif timeline.startswith("list:"): data = self.mastodon.timeline_list(timeline.split(":", 1)[1], limit=40)
             else: data = []

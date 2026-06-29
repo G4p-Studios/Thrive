@@ -34,6 +34,19 @@ def fetch_notifications(mastodon, **params):
 	return api_request(mastodon, "GET", "/api/v1/notifications", params)
 
 
+def fetch_notification_policy(mastodon):
+	return api_request(mastodon, "GET", "/api/v2/notifications/policy")
+
+
+def update_notification_policy(mastodon, policy):
+	return api_request(mastodon, "PATCH", "/api/v2/notifications/policy", policy)
+
+
+def search_v2(mastodon, query, **params):
+	params["q"] = query
+	return api_request(mastodon, "GET", "/api/v2/search", params)
+
+
 def fetch_account_statuses(mastodon, account_id, exclude_direct=False, **params):
 	params["exclude_direct"] = exclude_direct
 	return api_request(mastodon, "GET", f"/api/v1/accounts/{account_id}/statuses", params)
